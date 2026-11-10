@@ -1,2 +1,6 @@
 # Windows launchers must keep CRLF line endings to run from cmd.exe
 *.cmd text eol=crlf
+# The interface's page template and its compiled copy keep LF on every checkout, so a build on
+# Windows reproduces the committed output byte for byte (CI compares the two).
+ui/index.html text eol=lf
+readme_monitor/web/index.html text eol=lf

@@ -18,6 +18,8 @@ SCHEMA_VERSION = 3
 MAX_EVENTS = 20_000
 MAX_DRAFTS = 300
 MAX_EVENT_DATA = 32_000
+MAX_TEXT = 2000  # one string in an activity event
+MAX_DRAFT_TEXT = 200_000  # one stored README, proposal or diff; GitHub renders at most 512 KiB of a README
 
 # Columns added in schema 2 (account-wide discovery, generation policy). Added in place to an
 # existing schema-1 database after a backup copy is written; nothing is dropped or rewritten.
@@ -153,16 +155,18 @@ MIGRATION_STEPS = [
 ]
 
 
-def _clean(value, depth=0):
-    """Redact secret-looking text in every string; bound string length and nesting depth."""
+def _clean(value, depth=0, limit=MAX_TEXT):
+    """Redact secret-looking text in every string; bound string length and nesting depth. A cut
+    string says so, so a shortened README or diff is never mistaken for the whole one."""
     if isinstance(value, str):
-        return redact(value)[0][:2000]
+        text = redact(value)[0]
+        return text if len(text) <= limit else f"{text[:limit]} … [{len(text) - limit:,} more characters not stored]"
     if depth >= 20 and isinstance(value, (dict, list, tuple)):
         return "[nested too deeply]"
     if isinstance(value, dict):
-        return {str(k): _clean(v, depth + 1) for k, v in value.items()}
+        return {str(k): _clean(v, depth + 1, limit) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
-        return [_clean(v, depth + 1) for v in value]
+        return [_clean(v, depth + 1, limit) for v in value]
     return value
 
 
@@ -433,7 +437,7 @@ class DB:
         with self.tx() as c:
             did = c.execute(
                 "INSERT INTO drafts(at, run_id, repo, kind, proposal_id, files, flags, notes, estimate_usd) VALUES(?,?,?,?,?,?,?,?,?)",
-                (now(), run_id, repo, kind, proposal_id, json.dumps(_clean(files)), json.dumps(_clean(list(flags))),
+                (now(), run_id, repo, kind, proposal_id, json.dumps(_clean(files, limit=MAX_DRAFT_TEXT)), json.dumps(_clean(list(flags))),
                  json.dumps(_clean(list(notes))), estimate_usd)).lastrowid
             c.execute("DELETE FROM drafts WHERE id <= ?", (did - MAX_DRAFTS,))
             return did

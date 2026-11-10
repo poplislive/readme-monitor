@@ -20,15 +20,16 @@ Environment: Windows 11 (build 26200), PowerShell 5.1 and 7.6, Python 3.12.10, N
 Source: the working tree on top of commit `bb4f1ab` (branch `feature/public-app`), not yet
 committed when the checks ran. Rows 1 to 11 were first run by the verification and release
 specialist and rerun by the lead on the final tree (2026-11-10); rows 12 and 13 were run by the
-lead; rows marked pending are owed.
+lead; rows marked pending are owed. Rows 1, 5, 14 and 15 were rerun later on 2026-11-10 against the
+public repository `poplislive/readme-monitor` (commit `78061ed` with the fixes listed below).
 
 | # | Check | Command (working directory: the repository) | Label | Result |
 | --- | --- | --- | --- | --- |
-| 1 | Whole automated suite | `.\.venv\Scripts\python.exe -m pytest -q` | simulation + local integration | 274 passed, 1 skipped, exit code 0. The skipped test needs permission to create symbolic links, which this Windows account lacks |
+| 1 | Whole automated suite | `.\.venv\Scripts\python.exe -m pytest -q` | simulation + local integration | 280 passed, 1 skipped, exit code 0 (also in a fresh installation made by `install.ps1 -Dev` from the public repository). The skipped test needs permission to create symbolic links, which this Windows account lacks |
 | 2 | The eleven acceptance criteria | `.\.venv\Scripts\python.exe -m pytest -q tests/test_acceptance_product.py tests/test_acceptance_git_remote.py tests/test_acceptance_interface.py` | simulation + local integration | 25 passed |
 | 3 | Direct publication against a real Git repository (fast-forward, expected-blob check, trailer, a concurrent commit by another person is never overwritten) | `tests/test_acceptance_git_remote.py` | local integration (a local bare Git repository, not GitHub) | 3 passed |
 | 4 | Compiled interface scan: no secret pattern, local path, external address (other than XML namespaces and documentation links), inline script, event-handler attribute, `eval` or source map; reduced-motion rule present; every file the page names exists and is served | `tests/test_acceptance_interface.py` | local integration | 4 passed |
-| 5 | A clean copy installs and serves the built interface: copy of the tree to a new temporary folder, its own `install.ps1` with `-RuntimeHome` inside that folder, `ui --no-browser`, pairing, `/` and `/api/state` over HTTP, a reused sign-in address refused, server stopped, folder removed | `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-clean-install.ps1` (Windows PowerShell 5.1) | local integration (pip downloads the pinned libraries from the package index; no credential, no task, nothing written outside the temporary folder) | 14 `PASS` lines, no `FAIL`, "All checks passed", exit code 0; afterwards no account pointer file, no runtime folder and no scheduled task existed |
+| 5 | A clean copy installs and serves the built interface: copy of the tree to a new temporary folder, its own `install.ps1` with `-RuntimeHome` inside that folder, `ui --no-browser`, pairing, `/` and `/api/state` over HTTP, a reused sign-in address refused, server stopped, folder removed | `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-clean-install.ps1` (Windows PowerShell 5.1) | local integration (pip downloads the pinned libraries from the package index; no credential, no task, nothing written outside the temporary folder) | 16 `PASS` lines, no `FAIL`, "All checks passed", exit code 0; afterwards no account pointer file, no runtime folder and no scheduled task existed |
 | 6 | Installer errors are plain: a wrong `-PythonExe`, and no Python on `PATH` | `install.ps1 -PythonExe C:\nowhere\python.exe`; `install.ps1` with `PATH` reduced to the system folder | local integration | Both print one `ERROR:` sentence naming the fix and exit with code 1 (no stack trace) |
 | 7 | Upgrade run and opt-in scheduling: a second `install.ps1` run keeps an edited `config.toml`; `-InstallTask` on an installation that was never enabled | `install.ps1 -RuntimeHome <temp> -InstallTask` in a temporary copy | local integration | `config.toml` byte-identical; message "The scheduled task was NOT registered"; exit code 2; no `activation.json`; no scheduled task exists |
 | 8 | Launchers | `ReadmeMonitor.cmd -NoBrowser -Port <n> -RuntimeHome <temp>`; `scripts\start.ps1 -NoBrowser -Port <n> -RuntimeHome <temp>`; `start.ps1` in a tree without `.venv` | local integration | Both launchers started the interface on the requested port with the requested folder and printed a sign-in address; without `.venv` the message says to run the installer, exit code 1 |
@@ -37,8 +38,8 @@ lead; rows marked pending are owed.
 | 11 | README managed blocks and links | `readme_monitor.readme.parse` over `README.md`; `tests/test_cli_config_scheduler.py::test_readme_relative_links_exist` and `::test_cli_commands_documented_in_readme_exist` | local integration | No block reports a person's edit; relative links resolve; every `readme-monitor <command>` in the docs exists |
 | 12 | The real interface against the real server in simulation mode: setup, dry run, live runs, schedule, per-repository pause, layout at several sizes, frame timing | `readme-monitor ui --demo` in the built-in browser and in headless Chrome 157.0.8103.39 through its DevTools protocol | simulation (server, pipeline and interface real; GitHub and model simulated) | No console errors. No horizontal page scroll at 3840×2160, 2560×1440, 1920×1080, 1024×768, 768×1024, 390×844 and 375×812. On a phone width every control was at least 40 px. During a live simulated run at an *emulated* 3840×2160 viewport: 1,319 frames in 11.9 s, median 6.9 ms, 95th percentile 7.0 ms, 99th 13.9 ms, three frames over 33 ms (one, about 1 s, during a screenshot capture). This computer's display is 1920×1080 at 144 Hz with an RTX 3070: a physical 4K display was **not** measured. Keyboard-only and screen-reader passes were not repeated after the last repair. Screenshots: `docs/screenshots/` |
 | 13 | Real Windows Task Scheduler with the product's own task definitions, but a harmless action (`cmd /c`) under a throwaway task name, never the worker | a lead-written script: register, read back with `scheduler.parse_task_xml`, start, start again while running, replace the definition while running, delete | real Task Scheduler (not a ReadmeMonitor run) | Every schedule form registered and read back as configured: every 15, 45, 60 and 360 minutes, daily (local and UTC), weekly (local), manual. `IgnoreNew` and `StartWhenAvailable` survive registration. A second start while one instance ran did not create a second instance. Replacing the definition during a run neither stopped nor doubled the running instance, and the new schedule was in effect. The task was removed afterwards. Two defects found and fixed: Windows returns a UTC start time as local time with an offset (read-back now understands it), and Windows counts weekdays in local time even for a UTC time, so weekly schedules are now local only. A scheduled **worker** run was not performed (live work is not enabled on the development computer) |
-| 14 | A first check against real GitHub and the real provider with 0.3.0 | see "Not tested yet" | **pending: lead / owner** | |
-| 15 | The new CI workflow on GitHub's runners | push, then read the run | **pending: lead** | |
+| 14 | A first check against real GitHub with 0.3.0, read-only: the public repository `poplislive/readme-monitor` in `preview` mode with `api_export = "none"`, in a scratch runtime folder that was never enabled | `readme-monitor run-once --dry-run --repo poplislive/readme-monitor --home <scratch>`, then **Dry run** in the real interface (`ui --home <scratch>`, not `--demo`) | real GitHub (read-only) | Every stage recorded against the real head commit: inspect, evidence, draft without a model request, validate, result ("2 sections would change"). The proposed project-structure section matched the repository (it adds the licence files). No branch, pull request or commit appeared on GitHub; the token was not written to any file of the runtime folder. Found the draft-storage and layout defects listed below. The real provider and GitHub writes remain under "Not tested yet" (**pending: owner**) |
+| 15 | The CI workflow on GitHub's runners | push to `main` of `poplislive/readme-monitor`, then read the run | GitHub Actions | Run 42869539533 failed on Windows (the Cancel defect below). After the fix, run 42873853678 passed all four jobs: Windows installer and tests, Linux tests, interface build with the committed-output check, clean install |
 
 Output of check 5 (the account name and folder paths that the installer's health check prints
 were removed here; every line produced by the verification script itself is shown):
@@ -99,7 +100,13 @@ with a per-launch token, and a finished run no longer clears a request another r
 Two narrow cases remain: a Cancel pressed in the moment between a scheduled or terminal check
 taking its lock and recording its run (while it reads its credentials) is not applied to it, and a
 dry run started from a terminal while nothing else runs is not seen by the interface, so Cancel
-there reports `requested: false`.
+there reports `requested: false`. By the read-only check against real GitHub (row 14): stored
+drafts kept only the first 2,000 characters of the README, its proposal and the diff, so the
+review screen showed a tenth of a real README (drafts now keep up to 200,000 characters and say
+when they are cut); long folder paths, wide README code blocks and the dry-run grid widened the
+page on a phone (now no horizontal scroll at 375, 768 and desktop widths on every setup step and
+workbench tab, with real data); and a hand edit of the README's own `status` block had left its
+hash stale, so the monitor would have treated that block as a person's edit.
 
 ### What the suite does not prove
 
@@ -119,12 +126,11 @@ there reports `requested: false`.
 | A paid Claude generation with 0.3.0 and the real spending ledger | Needs an approved budget | A small budget on a throwaway repository, then `status` |
 | A real Task Scheduler registration, read-back, scheduled start, catch-up after sleep, signed-out behaviour, daylight-saving change | Registering a task on this computer was not part of this check | Enable the worker, save a schedule, `run-task-now`, then `status` shows a run with trigger `scheduled` |
 | Credential Manager access from the scheduled task | Depends on the row above | The scheduled run does not end in `credentials_missing` |
-| The interface in real browsers (keyboard, touch, narrow and 4K layouts, reduced motion at run time) | Needs a browser and a person | Use `ReadmeMonitor.cmd -Demo` |
+| The interface in real browsers (keyboard, touch, physical 4K displays, reduced motion at run time) | Needs a browser and a person | Use `ReadmeMonitor.cmd -Demo` |
 | Task time display on a non-English Windows (the next and last run times are read from English output only) | Not available | Run `schedule` and look at the "Task Scheduler" line |
 | Windows 10, and Python 3.11 specifically for the worker | Only Windows 11 with Python 3.12 was used | Run the installer there |
 | The installer on a computer that never had development tools | Only a developer computer was available | Follow [Getting started](getting-started.md) on a clean one |
 | `uninstall.ps1 -RemoveCredentials` against the real Credential Manager | Would delete real credentials | Run it on a computer where that is intended |
-| CI on GitHub's runners (Windows, Linux, interface) for this version | Not pushed | Read the next run |
 | `auto_pr` with branch protection or a merge queue | Not configured anywhere | Enable auto-merge in a throwaway repository's settings first |
 
 ## Earlier versions

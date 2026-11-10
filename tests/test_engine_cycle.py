@@ -312,6 +312,15 @@ def test_dry_run_shows_the_adoption_on_top_of_an_unadopted_readme(env):
     assert d["files"]["README.md"]["old"] == "# Demo\n\nPlain text.\n" and e.gh.writes == []
 
 
+def test_a_dry_run_stores_a_real_sized_readme_and_its_diff_whole(env):
+    long = "# Demo\n\n" + "".join(f"Paragraph {i}: text a person maintains by hand.\n\n" for i in range(500))
+    e = env(files={"README.md": long, "src/demo/app.py": "A = 1\n"})
+    e.run(trigger="dry_run", dry_run=True)
+    f = e.db.draft(result(e)["draft_id"])["files"]["README.md"]
+    assert len(long) > 20_000 and f["old"] == long and f["new"].startswith("# Demo") and len(f["new"]) > len(long)
+    assert "more characters not stored" not in f["new"] + f["diff"]  # the review screen shows all of it
+
+
 def test_cancellation_stops_at_the_next_boundary_and_keeps_pending_work(env):
     holder = {}
 

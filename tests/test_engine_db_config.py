@@ -123,6 +123,15 @@ def test_drafts_and_cancellation(tmp_path, monkeypatch):
     assert db.cancel_requested(later, "launch-a") and not db.cancel_requested(later, "launch-b") and not db.cancel_requested(later)
 
 
+def test_text_beyond_the_draft_limit_is_marked_never_silently_cut(tmp_path):
+    db = DB(tmp_path / "s.db")
+    huge = "x" * (dbm.MAX_DRAFT_TEXT + 5)
+    old = db.draft(db.add_draft(1, "o/r", "dry_run", {"README.md": {"old": huge}}, [], []))["files"]["README.md"]["old"]
+    assert old.startswith("x" * dbm.MAX_DRAFT_TEXT) and old.endswith("[5 more characters not stored]")
+    db.add_event(None, "manual", None, "run", "done", "m", {"text": "y" * 2005})  # events keep their own, smaller bound
+    assert db.events(limit=1)[0]["data"]["text"].endswith("[5 more characters not stored]")
+
+
 # ---- config ------------------------------------------------------------------------------
 
 FULL = """
