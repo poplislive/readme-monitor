@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Least privilege: nothing here writes to the repository, and no secret is used by any job.
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows (installer + tests)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install from a clean checkout with the project installer
+        shell: pwsh
+        run: ./scripts/install.ps1 -RuntimeHome "$env:RUNNER_TEMP\rm-home" -PythonExe python -Dev
+      - name: Tests
+        shell: pwsh
+        run: .\.venv\Scripts\python.exe -m pytest -q
+      - name: Scheduled task definition renders (not registered)
+        shell: pwsh
+        run: .\.venv\Scripts\readme-monitor.exe install-task --dry-run --home "$env:RUNNER_TEMP\rm-home" | Select-Object -First 5
+
+  clean-install:
+    name: Windows (clean install serves the built interface)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Copies the tree to a temporary folder, installs it with its own installer, starts its
+      # interface, pairs and fetches / and /api/state. Uses no credential, registers no task.
+      - name: Verify a clean install
+        shell: pwsh
+        run: ./scripts/verify-clean-install.ps1
+
+  linux:
+    name: Linux (portable tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest -q
+
+  interface:
+    name: Interface (typecheck, build, committed output is current)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24" # the major the committed build was produced with; bump deliberately and rebuild
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - name: Install exactly the locked packages
+        working-directory: ui
+        run: npm ci
+      - name: Typecheck
+        working-directory: ui
+        run: npm run typecheck
+      - name: Keep a copy of the committed build
+        run: cp -r readme_monitor/web "$RUNNER_TEMP/web-committed"
+      - name: Build
+        working-directory: ui
+        run: npm run build
+      # The users of the product never run Node: the compiled page in readme_monitor/web/ is what
+      # ships. It must therefore match the source. Every emitted asset has a content hash in its
+      # name, so comparing the list of files (and the one unhashed file, index.html, which also
+      # names the hashed script and stylesheet) proves the committed output was built from the
+      # current source and lockfile. Byte equality of every file is deliberately NOT enforced:
+      # fonts and minified output may differ in bytes across platforms or patch releases of the
+      # toolchain without any change a user could see, and a false alarm would train people to
+      # ignore this check. A real source change always changes a hash and fails here.
+      - name: Committed interface matches the source
+        run: |
+          set -eu
+          (cd "$RUNNER_TEMP/web-committed" && find . -type f | sort) > "$RUNNER_TEMP/files-committed.txt"
+          (cd readme_monitor/web && find . -type f | sort) > "$RUNNER_TEMP/files-built.txt"
+          if ! diff -u "$RUNNER_TEMP/files-committed.txt" "$RUNNER_TEMP/files-built.txt"; then
+            echo "::error::readme_monitor/web is out of date. Run 'npm ci && npm run build' in ui/ and commit the result."
+            exit 1
+          fi
+          if ! diff -u <(tr -d '\r' < "$RUNNER_TEMP/web-committed/index.html") <(tr -d '\r' < readme_monitor/web/index.html); then
+            echo "::error::index.html differs from the build output. Rebuild the interface and commit the result."
+            exit 1
+          fi
+          if find readme_monitor/web -name '*.map' | grep -q .; then
+            echo "::error::source maps must not ship"
+            exit 1
+          fi
+        shell: bash
+      - name: Interface unit tests
+        working-directory: ui
+        run: npm test

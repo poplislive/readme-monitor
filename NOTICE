@@ -1,0 +1,7 @@
+ReadmeMonitor
+Copyright 2026 poplislive
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The compiled interface in readme_monitor/web/ includes third-party software and fonts
+under their own licences; see THIRD_PARTY_NOTICES.md.

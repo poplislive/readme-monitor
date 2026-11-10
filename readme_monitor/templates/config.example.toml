@@ -1,0 +1,79 @@
+# ReadmeMonitor configuration (starter).
+# Created in your runtime folder by:  readme-monitor init
+# Credentials never go in this file. Store them with:   readme-monitor set-credential github|anthropic
+# Nothing is monitored, spent or published until you enroll a repository, approve a budget and
+# enable the worker on this computer (readme-monitor activate).
+
+[monitor]
+poll_interval_minutes = 15         # used when there is no [schedule] table
+model = "claude-sonnet-5-5"        # Anthropic model id; must have a price below or a built-in price
+effort = "medium"                  # low | medium | high (Claude effort level)
+max_output_tokens = 8000           # per request; also the output size reserved against the budget
+request_timeout_seconds = 120      # one Claude or GitHub request
+max_attempts = 2                   # Claude attempts per README; each attempt reserves budget
+run_timeout_seconds = 600          # one whole cycle; the scheduled task limit is this + 5 minutes
+max_repos_per_run = 10             # least recently checked repositories go first
+check_wait_minutes = 30            # wait this long for pending CI checks before generating anyway
+bot_branch = "readme-monitor/update"
+quiet_minutes = 30                 # paid generation waits until the branch is still this long
+min_generation_interval_hours = 12 # at most one paid update per repository in this window
+max_postpone_hours = 24            # constant commits stop delaying generation after this
+
+# When checks run. Windows Task Scheduler runs them; install-task registers this schedule.
+[schedule]
+mode = "interval"                  # manual | interval | daily | weekly
+interval_minutes = 15              # interval mode
+time = "09:00"                     # daily and weekly mode, 24-hour clock
+weekdays = ["mon", "tue", "wed", "thu", "fri"]  # weekly mode
+timezone = "local"                 # local (this computer's clock, follows daylight saving) | utc
+
+# Optional: only the computer with this name may enable the worker for this folder.
+[installation]
+host_lock = ""
+
+# Spending limits in US dollars. Paid generation stays PAUSED until all three are set.
+# No amount is pre-approved: fill these in only with limits you have decided on.
+[budget]
+# per_run_usd = 0.00
+# daily_usd = 0.00
+# monthly_usd = 0.00
+pacing = "even"                    # spread the monthly limit over the month; "none" to turn off
+
+# Optional: every repository an account owns. Off until owner is set. Discovered repositories
+# never send source to Claude; they get structure and release sections through review PRs.
+[discovery]
+owner = ""                         # e.g. the GitHub account the credential belongs to
+refresh_hours = 6
+publish_mode = "review_pr"         # preview | review_pr | auto_pr (direct needs a [[repo]] entry)
+managed_sections = ["project-structure", "recent-changes"]
+adoptions_per_day = 3
+exclude = []
+
+# Repositories whose content may never be sent to Claude, whatever else is configured.
+[policy]
+export_restricted = []
+
+# Optional price override (USD per million tokens) if Anthropic pricing changes.
+# [pricing."claude-sonnet-5-5"]
+# input = 2.0
+# output = 10.0
+# cache_write = 2.5
+# cache_read = 0.2
+
+# One [[repo]] table per enrolled repository. GitHub access alone never enrolls a repository.
+# Remove the leading "# " to enroll one:
+#
+# [[repo]]
+# name = "your-account/your-repository"
+# branch = ""                        # empty = the repository's current default branch
+# readme_paths = ["README.md"]
+# source_include = ["pyproject.toml", "src/**/*.py", "docs/*.md"]  # may be read and, with allowlist, sent to Claude
+# source_exclude = []
+# template_version = 1               # PopL Repository Standard v1
+# managed_sections = ["features", "configuration", "project-structure", "status", "recent-changes"]
+# disabled_sections = []
+# publish_mode = "preview"           # preview | review_pr | auto_pr | direct (commits straight to the branch)
+# api_export = "none"                # none = never send source to Claude; allowlist = send source_include files
+# monthly_usd = 0.00                 # optional per-repository limits
+# daily_usd = 0.00
+# paused = false

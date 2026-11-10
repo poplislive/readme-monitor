@@ -1,0 +1,52 @@
+# Python environments (the archived venv/ is never committed; use scripts\install.ps1)
+venv/
+.venv/
+env/
+
+# Bytecode, build and tool caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Runtime state: lives in %LOCALAPPDATA%\ReadmeMonitor, never in the source tree
+/bin/
+/data/
+/logs/
+/evidence/
+/config/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.log
+previews/
+backups/
+payloads/
+checkouts/
+
+# Credentials and private configuration
+.env
+.env.*
+config.toml
+*.pem
+*.key
+*.pfx
+
+# Interface build tooling (the compiled interface in readme_monitor/web/ IS committed)
+node_modules/
+ui/dist/
+*.tsbuildinfo
+
+# Editors and OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
