@@ -61,6 +61,9 @@ has a setup interface, and is documented for newcomers.
 - The runtime folder is chosen by `--home`, else `READMEMONITOR_HOME`, else the folder you
   activated, else `%USERPROFILE%\ReadmeMonitor`.
 - `status --json` and `doctor` carry the information the interface shows.
+- **Commits the monitor makes use the account's GitHub noreply address** as author and committer.
+  Earlier versions let GitHub fill in the account's primary e-mail address, which a public
+  repository shows to everyone.
 - The documentation was rewritten for the public product and private details were removed.
 
 ### Migration notes for existing installations

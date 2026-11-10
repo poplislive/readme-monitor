@@ -40,6 +40,10 @@ Writes, only when the installation is activated and the repository's publishing 
 - `auto_pr`: the same, plus a request to enable auto-merge.
 - `direct` (as specified): a commit on the target branch. It needs explicit confirmation.
 
+Every commit the monitor makes names your account's GitHub noreply address
+(`<id>+<login>@users.noreply.github.com`) as author and committer, never the e-mail address on
+your account, so a public repository does not show it. Commits you make yourself are unaffected.
+
 Dry runs read GitHub and write nothing.
 
 ## What goes to Anthropic

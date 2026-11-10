@@ -56,13 +56,13 @@ anywhere, and nothing is spent, published or scheduled until you switch it on.
 
 ## Current status and limitations
 
-<!-- readme-monitor:start:status hash=c8247c33f447 -->
+<!-- readme-monitor:start:status hash=8ae145079155 -->
 | Area | State |
 | --- | --- |
 | Version | 0.3.0, pre-release: no release has been published yet |
 | Where the worker runs | Windows only (developed and checked on Windows 11). Other systems can run the tests, dry runs and the offline commands |
 | Model provider | Anthropic is the only provider |
-| Automated tests | 280 tests pass against simulated GitHub, Claude and Task Scheduler (one more is skipped where Windows does not allow symbolic links), including one acceptance test per release criterion; direct publication is also tested against a real local Git repository (not GitHub). The CI workflow runs them on Windows and Linux; see the [verification record](docs/verification.md) for results |
+| Automated tests | 282 tests pass against simulated GitHub, Claude and Task Scheduler (one more is skipped where Windows does not allow symbolic links), including one acceptance test per release criterion; direct publication is also tested against a real local Git repository (not GitHub). The CI workflow runs them on Windows and Linux; see the [verification record](docs/verification.md) for results |
 | Setup interface | Served, paired and fetched by automated tests and by a clean-install check; its compiled assets are scanned for secrets, external addresses and inline code. Layout from 375 px wide to an emulated 3840×2160 screen was checked in Chrome; keyboard-only use, touch, screen readers and a physical 4K display are still to be checked by hand |
 | Real services | Earlier versions made read-only requests to real GitHub, one real model request and opened one real pull request (never merged). Version 0.3.0 has read a real GitHub repository in dry runs, from the command line and from the interface (no model request, no GitHub write). A live run with the real provider, merge confirmation and direct commits on GitHub are unverified |
 | Scheduled task | Every schedule form was registered with the real Windows Task Scheduler and read back, using a harmless test action. A scheduled run of the worker itself has not been verified |

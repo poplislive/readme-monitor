@@ -48,6 +48,7 @@ class GitHub:
         self.remaining: int | None = None
         self.reset_at: int | None = None
         self.scopes: str | None = None
+        self._identity: dict | None = None
 
     @property
     def quota_low(self) -> bool:
@@ -138,6 +139,16 @@ class GitHub:
     # ---- read operations --------------------------------------------------
     def whoami(self) -> dict:
         return self.get("/user")
+
+    def commit_identity(self) -> dict:
+        """Author and committer of every commit the monitor makes: the account's GitHub noreply
+        address. Without it GitHub records the account's primary e-mail address, which anyone can
+        read on a public repository. A failed lookup fails the write rather than fall back."""
+        # shortcut: needs a user token (GET /user); revisit if GitHub App credentials are added
+        if self._identity is None:
+            me = self.whoami()
+            self._identity = {"name": me["login"], "email": f"{me['id']}+{me['login']}@users.noreply.github.com"}
+        return self._identity
 
     def repo(self, full: str) -> dict:
         return self.get(f"/repos/{full}", conditional=True)
@@ -239,7 +250,9 @@ class GitHub:
         self._request("PATCH", f"/repos/{full}/git/refs/heads/{branch}", body={"sha": sha, "force": True})
 
     def put_file(self, full: str, path: str, branch: str, text: str, message: str, blob_sha: str | None) -> str:
-        body = {"message": message, "content": base64.b64encode(text.encode("utf-8")).decode(), "branch": branch}
+        who = self.commit_identity()
+        body = {"message": message, "content": base64.b64encode(text.encode("utf-8")).decode(), "branch": branch,
+                "author": who, "committer": who}
         if blob_sha:
             body["sha"] = blob_sha
         data = self._request("PUT", f"/repos/{full}/contents/{quote(path)}", body=body)[1]

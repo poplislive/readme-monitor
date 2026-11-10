@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from readme_monitor.db import DB
-from readme_monitor.github import GitHub, Incomplete, NotFound, RateLimited
+from readme_monitor.github import GitHub, GitHubError, Incomplete, NotFound, RateLimited
 
 
 class Resp:
@@ -27,13 +27,31 @@ class Session:
         self.sent = []
 
     def request(self, method, url, headers, params, json, timeout):
-        self.sent.append(SimpleNamespace(method=method, url=url, headers=dict(headers), params=params))
+        self.sent.append(SimpleNamespace(method=method, url=url, headers=dict(headers), params=params, body=json))
         return self.responses.pop(0)
 
 
 def client(responses, db=None):
     s = Session(responses)
     return GitHub("t0k", db=db, session=s, sleep=lambda s: None), s
+
+
+def test_bot_commits_use_the_accounts_noreply_address_never_its_email():
+    me = Resp(200, {"login": "your-account", "id": 42, "email": "person@example.com"})
+    gh, s = client([me, Resp(200, {"commit": {"sha": "c1"}}), Resp(200, {"commit": {"sha": "c2"}})])
+    assert gh.put_file("o/r", "README.md", "readme-monitor/update", "# x\n", "docs: update", None) == "c1"
+    assert gh.put_file("o/r", "README.md", "readme-monitor/update", "# y\n", "docs: update", "b1") == "c2"
+    assert [x.method for x in s.sent] == ["GET", "PUT", "PUT"]  # one identity lookup per client
+    who = {"name": "your-account", "email": "42+your-account@users.noreply.github.com"}
+    assert s.sent[1].body["author"] == s.sent[1].body["committer"] == who and s.sent[2].body["sha"] == "b1"
+    assert "person@example.com" not in json.dumps([x.body for x in s.sent])
+
+
+def test_no_commit_is_made_when_the_account_identity_cannot_be_read():
+    gh, s = client([Resp(401, {"message": "Bad credentials"})])
+    with pytest.raises(GitHubError):
+        gh.put_file("o/r", "README.md", "readme-monitor/update", "# x\n", "docs: update", None)
+    assert [x.method for x in s.sent] == ["GET"]  # no write with GitHub's default identity
 
 
 def test_conditional_request_reuses_cached_body(tmp_path):

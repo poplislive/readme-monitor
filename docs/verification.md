@@ -25,7 +25,7 @@ public repository `poplislive/readme-monitor` (commit `78061ed` with the fixes l
 
 | # | Check | Command (working directory: the repository) | Label | Result |
 | --- | --- | --- | --- | --- |
-| 1 | Whole automated suite | `.\.venv\Scripts\python.exe -m pytest -q` | simulation + local integration | 280 passed, 1 skipped, exit code 0 (also in a fresh installation made by `install.ps1 -Dev` from the public repository). The skipped test needs permission to create symbolic links, which this Windows account lacks |
+| 1 | Whole automated suite | `.\.venv\Scripts\python.exe -m pytest -q` | simulation + local integration | 282 passed, 1 skipped, exit code 0 (also in a fresh installation made by `install.ps1 -Dev` from the public repository). The skipped test needs permission to create symbolic links, which this Windows account lacks |
 | 2 | The eleven acceptance criteria | `.\.venv\Scripts\python.exe -m pytest -q tests/test_acceptance_product.py tests/test_acceptance_git_remote.py tests/test_acceptance_interface.py` | simulation + local integration | 25 passed |
 | 3 | Direct publication against a real Git repository (fast-forward, expected-blob check, trailer, a concurrent commit by another person is never overwritten) | `tests/test_acceptance_git_remote.py` | local integration (a local bare Git repository, not GitHub) | 3 passed |
 | 4 | Compiled interface scan: no secret pattern, local path, external address (other than XML namespaces and documentation links), inline script, event-handler attribute, `eval` or source map; reduced-motion rule present; every file the page names exists and is served | `tests/test_acceptance_interface.py` | local integration | 4 passed |
@@ -106,7 +106,9 @@ review screen showed a tenth of a real README (drafts now keep up to 200,000 cha
 when they are cut); long folder paths, wide README code blocks and the dry-run grid widened the
 page on a phone (now no horizontal scroll at 375, 768 and desktop widths on every setup step and
 workbench tab, with real data); and a hand edit of the README's own `status` block had left its
-hash stale, so the monitor would have treated that block as a person's edit.
+hash stale, so the monitor would have treated that block as a person's edit. By the personal-data audit before the release: commits the monitor makes carried the account's primary
+e-mail address, because GitHub fills it in when no author is sent; they now name the account's
+noreply address.
 
 ### What the suite does not prove
 
