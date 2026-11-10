@@ -277,8 +277,8 @@ First aid for anything: `.\.venv\Scripts\readme-monitor.exe doctor` prints one `
 
 ## Recent changes
 
-<!-- readme-monitor:start:recent-changes hash=3f24797effe2 -->
-No releases have been published yet. See the [changelog](CHANGELOG.md) for what 0.3.0 changes.
+<!-- readme-monitor:start:recent-changes hash=d016c55cc65f -->
+No releases have been published yet. See the [commit history](https://github.com/poplislive/readme-monitor/commits/main) for changes.
 <!-- readme-monitor:end:recent-changes -->
 
 ## Roadmap
