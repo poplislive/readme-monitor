@@ -455,21 +455,27 @@ class DB:
         row = self.conn.execute("SELECT MAX(id) FROM drafts WHERE repo=?", (repo,)).fetchone()
         return row[0] if row else None
 
-    def request_cancel(self):
+    def request_cancel(self, launch: str | None = None):
         """Asks the cycles already recorded to stop at their next safe boundary. Keyed to run ids,
         not timestamps: with one-second timestamps a request made while idle could stop a run
-        starting in the same second."""
+        starting in the same second. `launch` also names the one run the interface launched,
+        which may not have recorded its run yet; every launch has a new token, so it can never
+        match a later run."""
         newest = self.conn.execute("SELECT COALESCE(MAX(id), 0) FROM runs").fetchone()[0]
         self.set_setting("cancel_requested", str(newest))
+        if launch:
+            self.set_setting("cancel_launch", launch)
 
-    def cancel_requested(self, run_id: int) -> bool:
-        """True only for runs that existed when Cancel was pressed; a later run is never stopped by it."""
+    def cancel_requested(self, run_id: int, launch: str | None = None) -> bool:
+        """True only for runs that existed when Cancel was pressed, or for the launch it named;
+        a later run is never stopped by it."""
         at = self.get_setting("cancel_requested")
-        return bool(at) and at.isdigit() and run_id <= int(at)
-
-    def clear_cancel(self):
-        with self.tx() as c:
-            c.execute("DELETE FROM settings WHERE key='cancel_requested'")
+        if at and at.isdigit() and run_id <= int(at):
+            return True
+        return launch is not None and self.get_setting("cancel_launch") == launch
+    # Nothing clears these: run ids never repeat (AUTOINCREMENT) and every launch has a new token,
+    # so a request left behind can never stop a later run, and clearing it at the end of one run
+    # would drop the request for another run still going (a dry run takes no worker lock).
 
     def cache_get(self, url: str):
         row = self.conn.execute("SELECT etag, body FROM http_cache WHERE url=?", (url,)).fetchone()

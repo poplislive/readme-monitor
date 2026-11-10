@@ -28,6 +28,7 @@ from .worker import Locked, Worker, adoption, file_lock
 
 log = logging.getLogger("readme_monitor")
 EXAMPLE_CONFIG = Path(__file__).resolve().parent / "templates" / "config.example.toml"
+LAUNCH_ENV = "READMEMONITOR_LAUNCH"  # set by the interface on the run it launches, so Cancel can name it before it is recorded
 
 
 class Ctx:
@@ -108,7 +109,7 @@ def _worker(ctx: Ctx, trigger: str, **kw) -> Worker:
     gh = ctx.github()  # fails before a run record exists
     gen = Generator(ctx.cfg, ctx.db, None) if kw.get("dry_run") else ctx.generator()  # a dry run never reads the Anthropic key
     run_id = ctx.db.start_run(trigger, scheduler.current_user())
-    return Worker(ctx.cfg, ctx.db, gh, gen, ctx.home, run_id, trigger=trigger, **kw)
+    return Worker(ctx.cfg, ctx.db, gh, gen, ctx.home, run_id, trigger=trigger, launch=os.environ.get(LAUNCH_ENV) or None, **kw)
 
 
 def installation(ctx: Ctx) -> dict:
@@ -249,6 +250,10 @@ def _init(ctx: Ctx) -> int:
                 dest.write_text(new, encoding="utf-8")
                 out(f"{repo.name}: adoption written to {dest}")
             continue
+        if ctx.db.cancel_requested(worker.run_id, worker.launch):
+            out(f"{repo.name}: cancelled by request before publishing the adoption")
+            ctx.db.finish_run(worker.run_id, "cancelled", {"command": "init", "dry_run": False})
+            return status
         files = {p: (n, snap.readmes[p][1]) for p, (_, n) in changed.items()}
         hashes = {p: {"sections": {b.id: b.hash for b in parse(n)}} for p, (_, n) in changed.items()}
         pid = ctx.db.create_proposal(repo.name, "adoption", snap.head_sha, repo.publish_mode, "publishing", hashes, ["initial adoption"])
@@ -347,8 +352,6 @@ def cmd_run_once(ctx: Ctx) -> int:
                                  f"Check stopped by an unexpected error ({type(e).__name__}); see the log in the runtime folder",
                                  {"outcome": "crashed", "error": type(e).__name__})
                 raise
-            finally:
-                ctx.db.clear_cancel()
             summary["seconds"] = round(time.monotonic() - started, 1)
             ctx.db.finish_run(worker.run_id, outcome, summary)
             out(json.dumps(summary))

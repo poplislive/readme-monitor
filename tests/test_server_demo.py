@@ -12,6 +12,7 @@ import pytest
 import requests
 
 from readme_monitor import credentials, scheduler
+from readme_monitor.db import DB
 from .test_server_api import Client, assert_shapes, start, wait  # noqa: F401 (fixture)
 
 STAGES = ["inspect", "evidence", "draft", "validate", "publish", "result"]
@@ -128,6 +129,51 @@ def test_event_stream_ends_when_the_server_stops(start, tmp_path, offline):
     assert time.monotonic() - began < 3
     conn.close()
 
+
+def _held_launch(monkeypatch, app, fail=False):
+    """Hold the launched run back before it records its run, like a subprocess still starting,
+    until the test releases it. Meanwhile another writer (a scheduled run, say) records a run."""
+    original, go, seen = app.demo.run_cycle, threading.Event(), {}
+
+    def held(*a, **k):
+        assert go.wait(30)
+        other = DB(app.demo.db_path)
+        rid = other.start_run("scheduled", "someone")
+        seen["other_stopped"] = other.cancel_requested(rid)  # started after Cancel: must not be stopped
+        other.finish_run(rid, "ok", {})
+        other.close()
+        if fail:
+            raise RuntimeError("the launch ended before recording a run")
+        return original(*a, **k)
+
+    monkeypatch.setattr(app.demo, "run_cycle", held)
+    return original, go, seen
+
+
+def test_cancel_pressed_before_the_launched_run_is_recorded_stops_that_run_only(start, tmp_path, offline, monkeypatch):
+    app, c = start(tmp_path / "demo", demo=True, latency=(0.05, 0.3))
+    before = c.json("GET", "/api/runs")[1]["runs"]
+    _, go, seen = _held_launch(monkeypatch, app)
+    assert c.json("POST", "/api/run", {"kind": "live"})[1]["started"] is True
+    assert c.json("POST", "/api/cancel")[1] == {"ok": True, "requested": True}
+    assert c.json("GET", "/api/runs")[1]["runs"] == before  # Cancel came before the launched run was recorded
+    go.set()
+    wait(lambda: not app.thread.is_alive(), 60)
+    runs = c.json("GET", "/api/runs?limit=2")[1]["runs"]
+    assert [r["outcome"] for r in runs] == ["cancelled", "ok"] and seen["other_stopped"] is False
+
+
+def test_cancel_during_a_launch_that_records_no_run_does_not_stop_the_next_run(start, tmp_path, offline, monkeypatch):
+    app, c = start(tmp_path / "demo", demo=True)
+    original, go, seen = _held_launch(monkeypatch, app, fail=True)
+    assert c.json("POST", "/api/run", {"kind": "live"})[1]["started"] is True
+    assert c.json("POST", "/api/cancel")[1] == {"ok": True, "requested": True}
+    go.set()
+    wait(lambda: not app.thread.is_alive(), 60)
+    assert seen["other_stopped"] is False
+    monkeypatch.setattr(app.demo, "run_cycle", original)
+    run(app, c)
+    assert c.json("GET", "/api/runs?limit=1")[1]["runs"][0]["outcome"] == "ok"
 
 def test_rapid_runs_cancel_pause_and_schedule(start, tmp_path, offline):
     app, c = start(tmp_path / "demo", demo=True, latency=(0.05, 0.3))

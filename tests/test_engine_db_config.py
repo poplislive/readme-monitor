@@ -118,8 +118,9 @@ def test_drafts_and_cancellation(tmp_path, monkeypatch):
     db.request_cancel()
     assert db.cancel_requested(run)  # the run that was going when Cancel was pressed stops
     assert not db.cancel_requested(db.start_run("manual", "u"))  # a later run, even in the same second, does not
-    db.clear_cancel()
-    assert not db.cancel_requested(run)
+    db.request_cancel("launch-a")  # also the run the interface launched, whenever it records its run
+    later = db.start_run("manual", "u")
+    assert db.cancel_requested(later, "launch-a") and not db.cancel_requested(later, "launch-b") and not db.cancel_requested(later)
 
 
 # ---- config ------------------------------------------------------------------------------

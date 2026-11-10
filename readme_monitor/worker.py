@@ -142,8 +142,10 @@ class Prepared:
 
 class Worker:
     def __init__(self, cfg: Config, db, gh: GitHub, generator: Generator, home: Path, run_id: int, deadline: float | None = None,
-                 trigger: str = "manual", dry_run: bool = False, only: list[str] | None = None, guard=None):
+                 trigger: str = "manual", dry_run: bool = False, only: list[str] | None = None, guard=None,
+                 launch: str | None = None):
         self.cfg, self.db, self.gh, self.gen, self.home, self.run_id = cfg, db, gh, generator, home, run_id
+        self.launch = launch  # the interface's token for the run it launched; see DB.request_cancel
         self.deadline = deadline or (time.monotonic() + cfg.run_timeout_seconds)
         self.publisher = Publisher(cfg, db, gh, guard=guard)
         self.active: set[str] | None = None  # repositories processed this cycle (set by run)
@@ -192,7 +194,7 @@ class Worker:
         self.emit("result", status, msg, outcome=outcome, state=state, detail=detail, **extra)
 
     def _check_cancel(self, where: str):
-        if self.db.cancel_requested(self.run_id):
+        if self.db.cancel_requested(self.run_id, self.launch):
             raise Cancelled(f"cancelled by request {where}")
 
     def _inspect(self, repo: RepoConfig, row, snap: Snapshot):
@@ -777,7 +779,7 @@ class Worker:
         order = sorted(due, key=lambda r: (rows.get(r.name) or {"last_checked_at": None})["last_checked_at"] or "")
         batch = order[: self.cfg.max_repos_per_run]
         for i, repo in enumerate(batch):
-            if self.db.cancel_requested(self.run_id):
+            if self.db.cancel_requested(self.run_id, self.launch):
                 self.cancelled = True
                 summary["cancelled"] = summary.get("cancelled", 0) + len(batch) - i
                 break

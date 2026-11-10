@@ -329,8 +329,7 @@ def test_cancellation_stops_at_the_next_boundary_and_keeps_pending_work(env):
     assert [u[0] for u in usage] == ["reconciled"]  # the request already sent was completed and recorded
     assert e.gh.writes == [] and e.db.repo(REPO)["analyzed_fp"] is None and result(e)["outcome"] == "cancelled"
     assert "cancelled" in e.db.events(run_id=last_run(e))[-1]["message"]
-    e.db.clear_cancel()  # the CLI clears the flag when a run finishes
-    assert e.run() == {"awaiting_merge": 1}
+    assert e.run() == {"awaiting_merge": 1}  # the request left behind names only the older run
     assert len(e.claude.calls) == 1  # the stored answer is reused, nothing is paid twice
 
 

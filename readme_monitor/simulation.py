@@ -425,20 +425,19 @@ class Demo:
         self.step += 1
         return label
 
-    def run_cycle(self, trigger: str = "manual", dry_run: bool = False, repos: list[str] | None = None) -> dict:
+    def run_cycle(self, trigger: str = "manual", dry_run: bool = False, repos: list[str] | None = None,
+                  launch: str | None = None) -> dict:
         """One real cycle (Worker, Generator, Publisher, ledger) against the fakes."""
         run_id = self.db.start_run("dry_run" if dry_run else trigger, "simulation")
         gen = Generator(self.cfg, self.db, "sk-simulation", client=self.claude, sleep=lambda s: None, guard=_passthrough)
         worker = Worker(self.cfg, self.db, self.account, gen, self.home, run_id, trigger="dry_run" if dry_run else trigger,
-                        dry_run=dry_run, only=repos, guard=_passthrough)
+                        dry_run=dry_run, only=repos, guard=_passthrough, launch=launch)
         try:
             summary = worker.run()
         except Exception as e:
             self.db.finish_run(run_id, "crashed", {"error": type(e).__name__})
             raise
         self.db.finish_run(run_id, "cancelled" if worker.cancelled else "ok", summary)
-        if not dry_run:
-            self.db.clear_cancel()
         return summary
 
 

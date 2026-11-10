@@ -82,3 +82,23 @@ def test_a_repository_at_its_own_limit_does_not_hold_the_shared_queue(env):
     e.db.update_repo("owner/capped", state_detail="monthly limit $10.00 would be exceeded (spent $9.99, next request reserves $0.05)")
     assert "queued behind owner/capped" in (w.generation_wait(REPO, e.db.repo(REPO), datetime.now(timezone.utc).isoformat(timespec="seconds"),
                                                               hours_ago, datetime.now(timezone.utc)) or ("", ""))[1]
+
+
+def test_an_adoption_launched_by_the_interface_stops_before_publishing_when_cancelled(tmp_path, monkeypatch):
+    from readme_monitor import cli
+    from readme_monitor.simulation import FakeGitHub
+
+    from .conftest import CONFIG
+
+    (tmp_path / "config.toml").write_text(CONFIG.replace("{mode}", "review_pr"), encoding="utf-8")
+    gh = FakeGitHub({"README.md": "# Demo\n\nPlain text.\n", "src/demo/app.py": "A = 1\n"})
+    monkeypatch.setattr(cli, "GitHub", lambda token, **kw: gh)
+    monkeypatch.setattr(cli.credentials, "get", lambda kind: ("secret", "test"))
+    monkeypatch.setenv(cli.LAUNCH_ENV, "launch-1")
+    db = DB(tmp_path / "state.db")
+    db.request_cancel("launch-1")  # Cancel pressed while the interface's `init` was still starting
+    db.close()
+    assert cli.main(["init", "--repo", REPO, "--home", str(tmp_path)]) == 0
+    db = DB(tmp_path / "state.db")
+    assert gh.writes == [] and db.conn.execute("SELECT outcome FROM runs ORDER BY id DESC").fetchone()[0] == "cancelled"
+    db.close()

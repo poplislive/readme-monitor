@@ -91,7 +91,15 @@ had landed; oversized activity data could be stored as broken JSON and stop the 
 restoring an older database could lower recorded spending when two identical reservations fell in
 the same second; a Cancel pressed while idle could stop the next run; a repository stopped by its
 own per-repository limit held the shared queue for every other repository; emoji in a saved setting
-made the configuration unwritable; a disabled task trigger was still reported as the schedule.
+made the configuration unwritable; a disabled task trigger was still reported as the schedule. By
+the first CI run on GitHub's Windows runner, then two independent reviews of the fix: a Cancel
+pressed while a run the interface had just launched was still starting was ignored, and cancelling
+an adoption launched from the interface never stopped it. Cancel now also names the launched run
+with a per-launch token, and a finished run no longer clears a request another run still needed.
+Two narrow cases remain: a Cancel pressed in the moment between a scheduled or terminal check
+taking its lock and recording its run (while it reads its credentials) is not applied to it, and a
+dry run started from a terminal while nothing else runs is not seen by the interface, so Cancel
+there reports `requested: false`.
 
 ### What the suite does not prove
 

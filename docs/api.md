@@ -257,7 +257,7 @@ All answer `{ok: true, ...}` plus the fields named below, or an error.
 | `PUT /api/schedule` | `Schedule` | Saves the schedule. When the installation is active the scheduled task is re-registered and read back: `{schedule: ScheduleState, applied: true}`. Otherwise `{applied: false, reason}`. A weekly schedule must use `timezone: "local"` (Windows counts weekdays in local time); `"utc"` answers `400 invalid_config`. |
 | `POST /api/pause` / `POST /api/resume` | `{repo?}` | Whole monitor, or one repository. |
 | `POST /api/run` | `{kind: "live" \| "dry_run", repos?: RepoName[]}` | Starts one cycle in a separate process. `{started: true}` or `{started: false, reason: "already_running" \| "inactive" \| "paused" \| "credentials_missing"}`. A dry run reads GitHub, writes nothing to GitHub and makes no model request; it works on an inactive installation. |
-| `POST /api/cancel` | | Asks the running cycle to stop at the next safe boundary: `{requested: boolean}`. A request already sent to the model or GitHub is completed and reconciled, never abandoned. |
+| `POST /api/cancel` | | Asks the running cycle to stop at the next safe boundary: `{requested: boolean}`. This covers every run already recorded and the run this server launched, even one still starting; a run that starts afterwards is never stopped by it. A request already sent to the model or GitHub is completed and reconciled, never abandoned. |
 
 ## Configuration additions (config.toml)
 

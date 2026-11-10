@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from readme_monitor import cli, credentials, runtime, scheduler, server
+from readme_monitor.db import DB
 from readme_monitor.simulation import FakeAccount, FakeGitHub, _readme
 
 TOKEN = "ghp_" + "A1b2C3d4E5f6G7h8I9j0" * 2
@@ -517,3 +518,25 @@ def test_weekly_schedule_in_utc_is_a_plain_400(start, tmp_path):
     st, r = c.json("PUT", "/api/schedule", {"mode": "weekly", "time": "02:00", "weekdays": ["wed"], "timezone": "utc"})
     assert st == 400 and r["error"]["code"] == "invalid_config" and "this computer's time" in r["error"]["message"]
     assert 'mode = "weekly"' not in (app.home / "config.toml").read_text(encoding="utf-8")
+
+
+def test_a_launched_process_carries_the_token_its_cancel_names(start, tmp_path, monkeypatch):
+    app, c = start(tmp_path / "home")
+    seen = {}
+
+    class Starting:  # a launched run that has not recorded its run yet
+        def poll(self):
+            return None
+
+    monkeypatch.setattr(server.subprocess, "Popen", lambda cmd, **kw: seen.update(kw) or Starting())
+    app.start(False, None)
+    token = seen["env"][cli.LAUNCH_ENV]
+    assert token and token == app.launch_token
+    assert c.json("POST", "/api/cancel")[1] == {"ok": True, "requested": True}
+    db = DB(app.home / "state.db")
+    later = db.start_run("manual", "someone")
+    assert db.cancel_requested(later, token)  # the launched process, whenever it records its run
+    assert not db.cancel_requested(later, None) and not db.cancel_requested(later, "another-launch")
+    app.start(False, None)
+    assert seen["env"][cli.LAUNCH_ENV] != token  # a new launch is never covered by an old Cancel
+    db.close()

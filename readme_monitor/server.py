@@ -193,6 +193,7 @@ class App:
         self.config_lock = threading.Lock()  # config.toml read-modify-write: two quick saves never lose one
         self.proc = None    # the last run process this server started
         self.thread = None  # simulation: the background run
+        self.launch_token = None  # names the run this server launched last; see DB.request_cancel
         self.heartbeat, self.poll = 15.0, 0.25
         self.demo = None
         if demo:
@@ -238,6 +239,12 @@ class App:
         except Locked:
             return True
 
+    def launched_alive(self) -> bool:
+        """The run this server launched is still starting or running."""
+        if self.demo:
+            return self.thread is not None and self.thread.is_alive()
+        return self.proc is not None and self.proc.poll() is None
+
     def credential(self, kind: str) -> tuple[bool, str]:
         if self.demo:
             return True, "simulation"
@@ -252,17 +259,18 @@ class App:
             kw["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
         else:
             kw["start_new_session"] = True
+        kw["env"] = {**os.environ, cli.LAUNCH_ENV: self.launch_token or ""}
         return subprocess.Popen(cmd, **kw)
 
-    def _demo_run(self, dry_run: bool, repos, advance: bool):
+    def _demo_run(self, dry_run: bool, repos, advance: bool, launch: str):
         db = DB(self.demo.db_path)
         self.demo.db, self.demo.cfg = db, load(self.demo.config_path)
         try:
             if dry_run:
-                self.demo.run_cycle(dry_run=True, repos=repos)
+                self.demo.run_cycle(dry_run=True, repos=repos, launch=launch)
             else:
                 with file_lock(self.home / "worker.lock"):
-                    self.demo.run_cycle("manual", repos=repos)
+                    self.demo.run_cycle("manual", repos=repos, launch=launch)
                 if advance:
                     self.demo.advance()  # the next Run shows the next part of the scripted scenario
         except Exception:
@@ -271,8 +279,10 @@ class App:
             db.close()
 
     def start(self, dry_run: bool, repos: list[str] | None, adopt: str | None = None) -> None:
+        self.launch_token = secrets.token_hex(16)
         if self.demo:
-            self.thread = threading.Thread(target=self._demo_run, args=(dry_run, [adopt] if adopt else repos, not adopt and not dry_run),
+            self.thread = threading.Thread(target=self._demo_run, args=(dry_run, [adopt] if adopt else repos, not adopt and not dry_run,
+                                                                      self.launch_token),
                                            daemon=True)
             self.thread.start()
             return
@@ -969,9 +979,13 @@ class Handler(BaseHTTPRequestHandler):
         return self._start(ctx, False, adopt=discovery.find_repo(ctx.cfg, ctx.db, _repo_name(*g)).name)
 
     def api_cancel(self, ctx, g, q, b, s):
-        running = self.app.busy()
-        if running:
-            ctx.db.request_cancel()
+        app = self.app
+        with app.run_lock:  # never between a Start's check and its launch, so it cannot name a later run
+            running = app.busy()
+            if running:
+                # every run already recorded (a scheduled one too), plus the one this server launched,
+                # which may still be starting and not yet recorded
+                ctx.db.request_cancel(app.launch_token if app.launched_alive() else None)
         return {"ok": True, "requested": running}
 
 
