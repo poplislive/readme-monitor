@@ -1,0 +1,15 @@
+:root { --bg: #0e1116; --ink: #e6ebf2; --muted: #9aa6b5; --line: #2a3340; --focus: #9ab7ff; --brand: #7650a8; color-scheme: dark; }
+@media (prefers-color-scheme: light) { :root { --bg: #eef1f5; --ink: #141a22; --muted: #4f5b6a; --line: #c4ccd6; --focus: #2f5bd3; color-scheme: light; } }
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; display: grid; place-items: center; }
+main { text-align: center; max-width: 34rem; padding: 2rem 1.25rem; }
+h1 { font-size: 1.4rem; margin: 0.75rem 0 0.25rem; font-weight: 600; }
+.mark { border-radius: 12px; }
+#status { margin: 0.25rem 0 1rem; }
+.detail { color: var(--muted); font-size: 0.9rem; white-space: pre-wrap; overflow-wrap: anywhere; text-align: left; border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem; }
+.spinner { width: 28px; height: 28px; margin: 0 auto; border: 3px solid var(--line); border-top-color: var(--brand); border-radius: 50%; animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } }
+.btn { display: inline-block; margin-top: 1rem; padding: 0.5rem 1rem; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); text-decoration: none; }
+.btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }

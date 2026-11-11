@@ -45,6 +45,10 @@ node_modules/
 ui/dist/
 *.tsbuildinfo
 
+# Desktop shell build output (Rust, Tauri); the engine freeze goes to build/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+
 # Editors and OS
 .vscode/
 .idea/

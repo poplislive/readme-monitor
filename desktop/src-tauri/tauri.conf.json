@@ -1,0 +1,63 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "ReadmeMonitor",
+  "version": "../package.json",
+  "identifier": "io.github.poplislive.readmemonitor",
+  "build": {
+    "frontendDist": "../shell"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'",
+      "capabilities": []
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "app", "dmg", "deb", "appimage"],
+    "createUpdaterArtifacts": true,
+    "publisher": "poplislive",
+    "copyright": "ReadmeMonitor contributors. Apache-2.0.",
+    "category": "DeveloperTool",
+    "shortDescription": "Keeps GitHub READMEs accurate with evidence-based documentation pull requests.",
+    "longDescription": "ReadmeMonitor watches the GitHub repositories you enroll and proposes evidence-based README updates, within the spending limits you set.",
+    "homepage": "https://github.com/poplislive/readme-monitor",
+    "license": "Apache-2.0",
+    "licenseFile": "../../LICENSE",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "resources": {
+      "../../build/engine-dist/engine/": "engine/",
+      "../../LICENSE": "licenses/LICENSE",
+      "../../NOTICE": "licenses/NOTICE",
+      "../../THIRD_PARTY_NOTICES.md": "licenses/THIRD_PARTY_NOTICES.md",
+      "../../build/notices/RUST_THIRD_PARTY.md": "licenses/RUST_THIRD_PARTY.md",
+      "../../build/notices/PYTHON_THIRD_PARTY.md": "licenses/PYTHON_THIRD_PARTY.md"
+    },
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true },
+      "nsis": {
+        "installMode": "currentUser",
+        "installerIcon": "icons/icon.ico",
+        "installerHooks": "windows/hooks.nsh"
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    },
+    "linux": {
+      "deb": {
+        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0", "libayatana-appindicator3-1"],
+        "section": "devel"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE5MzExRkMzNTgwNzkxQ0EKUldUS2tRZFl3eDh4cVQ2eVpESVNRdSs4MmpFVXBYUHgrT2FOVEw2d1B1Ky9vMUJmSVczM2R0TEUK",
+      "endpoints": ["https://github.com/poplislive/readme-monitor/releases/latest/download/latest.json"],
+      "windows": { "installMode": "passive" }
+    }
+  }
+}

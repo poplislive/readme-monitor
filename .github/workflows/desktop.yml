@@ -1,0 +1,149 @@
+name: Desktop
+
+# Pull requests and pushes to main: build and smoke-test the desktop application on every target,
+# unsigned, artifacts kept 7 days. No secret is available to these runs.
+# A pushed version tag (vMAJOR.MINOR.PATCH, the owner's deliberate release action): the same build
+# with updater signatures (and OS publisher signatures where configured), collected into a DRAFT
+# GitHub Release with latest.json and SHA256SUMS.txt. Installed applications only see a release
+# after the owner publishes the draft.
+on:
+  pull_request:
+    paths: ["readme_monitor/**", "packaging/**", "desktop/**", "ui/**", ".github/workflows/desktop.yml"]
+  push:
+    branches: [main]
+    paths: ["readme_monitor/**", "packaging/**", "desktop/**", "ui/**", ".github/workflows/desktop.yml"]
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: windows-x64, os: windows-latest, target: x86_64-pc-windows-msvc, bundles: nsis, exe: rm-engine.exe }
+          - { label: macos-arm64, os: macos-15, target: aarch64-apple-darwin, bundles: "app,dmg", exe: rm-engine }
+          - { label: macos-x64, os: macos-15-intel, target: x86_64-apple-darwin, bundles: "app,dmg", exe: rm-engine }
+          - { label: linux-x64, os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, bundles: "deb,appimage", exe: rm-engine }
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write # the tag build attaches files to the draft release; other runs never write
+    env:
+      RELEASE: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Linux system libraries (WebKitGTK 4.1, tray indicator)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2
+
+      - name: One version everywhere (and equal to the tag)
+        shell: bash
+        run: python packaging/check_versions.py ${{ env.RELEASE == 'true' && github.ref_name || '' }}
+
+      - name: Freeze the engine (built on this OS and architecture; PyInstaller does not cross-compile)
+        shell: bash
+        run: |
+          python -m pip install -r packaging/requirements-build.txt
+          python -m pip install --no-deps .
+          python packaging/python_notices.py build/notices/PYTHON_THIRD_PARTY.md
+          python -m PyInstaller packaging/engine.spec --distpath build/engine-dist --workpath build/pyi --noconfirm --log-level WARN
+      - name: Smoke-test the frozen engine as the shell uses it (simulation)
+        shell: bash
+        run: python packaging/smoke_engine.py "build/engine-dist/engine/${{ matrix.exe }}"
+
+      - name: Import the Developer ID certificate (release, when configured)
+        if: runner.os == 'macOS' && env.RELEASE == 'true' && env.APPLE_CERTIFICATE != ''
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          KC="$RUNNER_TEMP/build.keychain"; PW="$(openssl rand -hex 16)"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$PW" "$KC" && security set-keychain-settings -lut 3600 "$KC" && security unlock-keychain -p "$PW" "$KC"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$PW" "$KC"
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+      - name: Sign the engine's nested binaries (release, when configured)
+        if: runner.os == 'macOS' && env.RELEASE == 'true'
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: bash packaging/macos/sign-engine.sh build/engine-dist/engine
+
+      - name: Rust licence notices
+        shell: bash
+        run: python packaging/rust_notices.py build/notices/RUST_THIRD_PARTY.md
+      - name: Desktop tooling
+        working-directory: desktop
+        run: npm ci --no-fund --no-audit
+
+      - name: Build (development, unsigned)
+        if: env.RELEASE != 'true'
+        working-directory: desktop
+        shell: bash
+        run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config '{"bundle":{"createUpdaterArtifacts":false}}'
+      - name: Keep the development build
+        if: env.RELEASE != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: readme-monitor-${{ matrix.label }}-development
+          path: desktop/src-tauri/target/${{ matrix.target }}/release/bundle/
+          retention-days: 7
+
+      - name: Build, sign and attach to the draft release
+        if: env.RELEASE == 'true'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          projectPath: desktop
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+          tagName: ${{ github.ref_name }}
+          releaseName: ReadmeMonitor ${{ github.ref_name }}
+          releaseBody: "Draft. Release notes, checksums and the evidence matrix are added before publication."
+          releaseDraft: true
+          prerelease: false
+          includeUpdaterJson: true
+
+  checksums:
+    name: Checksums for the draft release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: SHA256SUMS.txt over every attached file
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir assets && cd assets
+          gh release download "${{ github.ref_name }}" --repo "${{ github.repository }}" --pattern '*'
+          sha256sum -- * | grep -v ' SHA256SUMS.txt$' > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          gh release upload "${{ github.ref_name }}" SHA256SUMS.txt --repo "${{ github.repository }}" --clobber
