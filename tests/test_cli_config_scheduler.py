@@ -42,7 +42,7 @@ def test_example_config_is_valid_and_spends_nothing(tmp_path):
 
 
 def test_task_xml_is_well_formed_and_safe():
-    xml = task_xml(Path(r"C:\Program Files\x\pythonw.exe"), Path(r"C:\src\ReadmeMonitor"), Path(r"C:\Users\u\AppData\Local\ReadmeMonitor"),
+    xml = task_xml([r"C:\Program Files\x\pythonw.exe", "-m", "readme_monitor"],Path(r"C:\src\ReadmeMonitor"), Path(r"C:\Users\u\AppData\Local\ReadmeMonitor"),
                    Path(r"C:\Users\u\AppData\Local\ReadmeMonitor\config.toml"), Schedule(interval_minutes=5), 15, r"WORKSTATION-1\user")
     ns = {"t": "http://schemas.microsoft.com/windows/2004/02/mit/task"}
     root = ET.fromstring(xml.replace('encoding="UTF-16"', ""))

@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
-from . import __version__, credentials, discovery, runtime, scheduler
+from . import __version__, credentials, discovery, launcher, runtime, scheduler
 from .config import Config, ConfigError, default_home, load
 from .db import DB, check_integrity
 from .github import GitHub, GitHubError, NotFound
@@ -62,7 +62,7 @@ class Ctx:
     def github(self) -> GitHub:
         token, _ = credentials.get("github")
         if not token:
-            raise SystemExit("GitHub credential not found for this Windows account. Run: readme-monitor set-credential github")
+            raise SystemExit("GitHub credential not found for this account. Run: readme-monitor set-credential github")
         return GitHub(token, db=self.db)
 
     def generator(self) -> Generator:
@@ -119,7 +119,9 @@ def installation(ctx: Ctx) -> dict:
     except ConfigError:
         pass
     return {"home": str(ctx.home), "host": runtime.hostname(), "account": scheduler.current_user(), "platform": sys.platform,
-            "supported": runtime.WINDOWS, "active": runtime.activation_problem(ctx.home, lock) is None,
+            "scheduler": scheduler.name(), "credential_store": credentials.store_name(),
+            "scheduling_unavailable": launcher.unstable_reason(), "desktop": launcher.FROZEN, "version": __version__,
+            "supported": runtime.SUPPORTED, "active": runtime.activation_problem(ctx.home, lock) is None,
             "problem": runtime.activation_problem(ctx.home, lock), "activation": runtime.activation(ctx.home), "host_lock": lock}
 
 
@@ -162,6 +164,14 @@ def doctor_checks(ctx: Ctx, api: bool = False) -> list[tuple[str, str, str]]:
             check("worker lock", True, "free")
     except Locked:
         check("worker lock", True, "held by a running worker", warn=True)
+    m = runtime.maintenance(ctx.home)
+    check("application update", m is None, "none in progress" if m is None else
+          f"installing {m.get('to_version')} since {m.get('started_at')}; checks are skipped until it finishes", warn=True)
+    try:
+        credentials._require_secure_backend()
+        check("credential store", True, credentials.store_name())
+    except Exception as e:
+        check("credential store", False, credentials.redact(str(e))[0])
     gh_token, gh_src = credentials.get("github")
     check("github credential", bool(gh_token), gh_src)
     key, key_src = credentials.get("anthropic")
@@ -198,7 +208,7 @@ def doctor_checks(ctx: Ctx, api: bool = False) -> list[tuple[str, str, str]]:
         except Exception as e:  # report, never print the key
             check("model available", False, f"{cfg.model}: {type(e).__name__}")
     task = scheduler.query()
-    check("scheduled task", task is not None, json.dumps(task) if task else "not installed", warn=True)
+    check("scheduled task", task is not None, f"{scheduler.name()}: " + (json.dumps(task) if task else "not installed"), warn=True)
     return results
 
 
@@ -216,6 +226,8 @@ def cmd_init(ctx: Ctx) -> int:
         ctx.require_active()
         try:
             with file_lock(ctx.home / "worker.lock"):
+                if updating(ctx):
+                    return 0
                 return _init(ctx)
         except Locked as e:
             out(f"Skipped: {e}")
@@ -275,6 +287,8 @@ def cmd_preview(ctx: Ctx) -> int:
     ctx.require_active()  # paid: same activated folder, lock and ledger as the scheduled worker
     try:
         with file_lock(ctx.home / "worker.lock"):
+            if updating(ctx):
+                return 0
             return _preview(ctx)
     except Locked as e:
         out(f"Skipped: {e}")
@@ -312,6 +326,15 @@ def _preview(ctx: Ctx) -> int:
     return 0
 
 
+def updating(ctx: Ctx) -> bool:
+    """Called while holding worker.lock: an application update in progress means skip, untouched."""
+    m = runtime.maintenance(ctx.home)
+    if m:
+        log.info("check skipped: an application update to %s is being installed", m.get("to_version"))
+        out(f"Skipped: an application update (to {m.get('to_version')}) is being installed; checks resume when it finishes.")
+    return m is not None
+
+
 def _only(ctx: Ctx) -> list[str] | None:
     return [discovery.find_repo(ctx.cfg, ctx.db, n).name for n in ctx.args.repo] if ctx.args.repo else None
 
@@ -333,6 +356,8 @@ def cmd_run_once(ctx: Ctx) -> int:
     try:
         # wait: the setup interface probes this lock for an instant to see whether a run is active
         with file_lock(ctx.home / "worker.lock", wait=0.5):
+            if updating(ctx):
+                return 0
             try:
                 worker = _worker(ctx, ctx.args.trigger, only=_only(ctx))
             except SystemExit as e:
@@ -390,7 +415,7 @@ def cmd_discover(ctx: Ctx) -> int:
         ctx.require_active()
     token, _ = credentials.get("github")
     if not token:
-        raise SystemExit("GitHub credential not found for this Windows account. Run: readme-monitor set-credential github")
+        raise SystemExit("GitHub credential not found for this account. Run: readme-monitor set-credential github")
     gh = GitHub(token)
     try:
         owned, coverage = discovery.list_owned(gh, cfg.discovery.owner)
@@ -456,7 +481,7 @@ def discover_inventory(cfg: Config, rows: list[dict], owned: list[dict]) -> list
 def cmd_activate(ctx: Ctx) -> int:
     data = runtime.activate(ctx.home, scheduler.current_user(), ctx.host_lock())
     out(f"Worker enabled on {data['host']} for {data['home']} (account {data['account']}, since {data['activated_at']}).")
-    out("This is the active runtime folder for this Windows account; commands without --home use it.")
+    out("This is the active runtime folder for this account; commands without --home use it.")
     return 0
 
 
@@ -486,8 +511,10 @@ def schedule_state(ctx: Ctx, read_back=None, task_query=None) -> dict:
     effective = (read_back or scheduler.query_schedule)()
     task_query = task_query or scheduler.query
     now = datetime.now(timezone.utc)
+    program = scheduler.registered_program() if read_back is None else None
     return {"configured": asdict(sched), "effective": asdict(effective) if effective else None,
-            # compared by meaning: a task read back from Windows carries defaults for fields its mode does not use
+            "program": {"registered": program, "current": scheduler.program_is_current(program)},
+            # compared by meaning: a schedule read back from the system carries defaults for fields its mode does not use
             "in_sync": effective is not None and scheduler.summary(effective) == scheduler.summary(sched),
             "summary": scheduler.summary(sched),
             "next_checks": [t.isoformat(timespec="seconds") for t in scheduler.next_checks(sched, now)],
@@ -501,11 +528,13 @@ def cmd_schedule(ctx: Ctx) -> int:
         return 0
     out(f"Configured: {data['summary']}")
     out("Next checks: " + (", ".join(data["next_checks"]) or "none (manual)") + " (UTC)")
-    if runtime.WINDOWS:
+    if runtime.SUPPORTED:
         eff = data["effective"]
-        out("Task Scheduler: " + ("no task registered" if eff is None else
+        out(f"{scheduler.name()}: " + ("nothing registered" if eff is None else
                                   f"{scheduler.summary(scheduler.Schedule(**{**eff, 'weekdays': tuple(eff['weekdays'])}))}"
                                   + ("" if data["in_sync"] else "; differs from config.toml, run install-task")))
+        if data["program"]["current"] is False:
+            out(f"The scheduled check starts another copy: {data['program']['registered']}. Run install-task to point it at this one.")
     return 0
 
 
@@ -670,20 +699,18 @@ def cmd_install_task(ctx: Ctx) -> int:
         out(task_definition(ctx, sched))
         return 0
     out(register_task(ctx, sched))
-    out(f"Task {scheduler.TASK_NAME}: {scheduler.summary(sched)}, as {scheduler.current_user()} (only while signed in).")
+    out(f"{scheduler.name()}: {scheduler.summary(sched)}, as {scheduler.current_user()} (only while signed in).")
     out("Verify a real scheduled run with: readme-monitor run-task-now, then readme-monitor status")
     return 0
 
 
 def task_definition(ctx: Ctx, sched) -> str:
-    workdir = Path(__file__).resolve().parent.parent
-    return scheduler.task_xml(scheduler.interpreter(), workdir, ctx.home, ctx.config_path, sched,
-                              ctx.cfg.run_timeout_seconds // 60 + 5, scheduler.current_user())
+    return scheduler.definition(sched, ctx.home, ctx.config_path, ctx.cfg.run_timeout_seconds // 60 + 5)
 
 
 def register_task(ctx: Ctx, sched) -> str:
     """Callers check activation first (install-task, the setup interface's schedule save)."""
-    return scheduler.install(task_definition(ctx, sched), ctx.home / "task" / "ReadmeMonitor-Sync.xml")
+    return scheduler.register(sched, ctx.home, ctx.config_path, ctx.cfg.run_timeout_seconds // 60 + 5)
 
 
 def cmd_ui(ctx: Ctx) -> int:
@@ -692,9 +719,15 @@ def cmd_ui(ctx: Ctx) -> int:
     return server.launch(ctx.home, port=ctx.args.port, browser=not ctx.args.no_browser, demo=ctx.args.demo)
 
 
+def cmd_desktop_serve(ctx: Ctx) -> int:
+    from . import desktop
+
+    return desktop.serve(ctx.home, demo=ctx.args.demo)
+
+
 def cmd_uninstall_task(ctx: Ctx) -> int:
     out(scheduler.uninstall())
-    out(f"Task removed. Data, configuration and credentials are kept in {ctx.home}.")
+    out("Scheduled check removed. Data, configuration and credentials are kept in the runtime folder.")
     return 0
 
 
@@ -711,13 +744,13 @@ def cmd_set_credential(ctx: Ctx) -> int:
         out("Nothing entered; credential unchanged.")
         return 1
     credentials.store(kind, value)
-    out(f"Stored {kind} credential in Windows Credential Manager for {scheduler.current_user()} (target {credentials.SERVICE}).")
+    out(f"Stored {kind} credential in {credentials.store_name()} for {scheduler.current_user()} (target {credentials.SERVICE}).")
     return 0
 
 
 def cmd_remove_credential(ctx: Ctx) -> int:
     removed = credentials.remove(ctx.args.kind)
-    out(f"{ctx.args.kind} credential {'removed from' if removed else 'was not in'} Windows Credential Manager for {scheduler.current_user()}.")
+    out(f"{ctx.args.kind} credential {'removed from' if removed else 'was not in'} {credentials.store_name()} for {scheduler.current_user()}.")
     return 0
 
 
@@ -751,7 +784,8 @@ def cmd_restore(ctx: Ctx) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--home", help="runtime folder (default: READMEMONITOR_HOME, else the activated folder, else %%USERPROFILE%%\\ReadmeMonitor)")
+    common.add_argument("--home", help="runtime folder (default: READMEMONITOR_HOME, else the activated folder, else %%USERPROFILE%%\\ReadmeMonitor "
+                        "on Windows, ~/Library/Application Support/ReadmeMonitor on macOS, $XDG_DATA_HOME/ReadmeMonitor on Linux)")
     common.add_argument("--config", help="config file (default: <home>\\config.toml)")
     common.add_argument("-v", "--verbose", action="store_true")
     p = argparse.ArgumentParser(prog="readme-monitor", description="Evidence-based README maintenance for enrolled GitHub repositories.")
@@ -783,12 +817,12 @@ def build_parser() -> argparse.ArgumentParser:
     for name in ("pause", "resume"):
         s = sub.add_parser(name, parents=[common], help=f"{name} the monitor or one repository")
         s.add_argument("--repo")
-    s = sub.add_parser("install-task", parents=[common], help="register the Windows scheduled task")
+    s = sub.add_parser("install-task", parents=[common], help="register the scheduled check with the system scheduler")
     s.add_argument("--interval", type=int, help="minutes between runs (default: config poll_interval_minutes)")
     s.add_argument("--dry-run", action="store_true", help="print the task definition instead of registering it")
     sub.add_parser("uninstall-task", parents=[common], help="remove the scheduled task (keeps data)")
-    sub.add_parser("run-task-now", parents=[common], help="ask Task Scheduler to start the task now")
-    s = sub.add_parser("set-credential", parents=[common], help="store a credential in Windows Credential Manager")
+    sub.add_parser("run-task-now", parents=[common], help="ask the system scheduler to start the scheduled check now")
+    s = sub.add_parser("set-credential", parents=[common], help="store a credential in the operating system's credential store")
     s.add_argument("kind", choices=sorted(credentials.KINDS))
     s.add_argument("--stdin", action="store_true", help="read the value from standard input")
     s = sub.add_parser("remove-credential", parents=[common], help="delete a stored credential")
@@ -801,6 +835,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--port", type=int, default=8765, help="first port to try (default 8765; the next free one is used)")
     s.add_argument("--no-browser", action="store_true", help="print the sign-in address instead of opening the browser")
     s.add_argument("--demo", action="store_true", help="simulation with an in-memory GitHub and a scripted model in a temporary folder")
+    # Started by the desktop application only: talks JSON lines on stdin/stdout (desktop.py).
+    s = sub.add_parser("desktop-serve", parents=[common])
+    s.add_argument("--demo", action="store_true")
     return p
 
 
@@ -810,13 +847,16 @@ COMMANDS = {
     "uninstall-task": cmd_uninstall_task, "run-task-now": cmd_run_task_now, "set-credential": cmd_set_credential, "remove-credential": cmd_remove_credential,
     "backup-db": cmd_backup, "restore-db": cmd_restore, "discover": cmd_discover, "bind-host": cmd_bind_host,
     "activate": cmd_activate, "deactivate": cmd_deactivate, "cancel": cmd_cancel, "schedule": cmd_schedule, "ui": cmd_ui,
+    "desktop-serve": cmd_desktop_serve,
 }
 
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     ctx = Ctx(args)
-    if not (args.command == "ui" and args.demo):  # the simulation uses its own temporary folder and touches no real one
+    # The simulation uses its own temporary folder; uninstall-task (also run by the Windows uninstaller)
+    # needs no runtime folder and must not create one.
+    if not (args.command in ("ui", "desktop-serve") and args.demo) and args.command != "uninstall-task":
         ctx.home.mkdir(parents=True, exist_ok=True)
         try:
             runtime.migrate_legacy(ctx.home)  # idempotent; a mismatch only leaves the folder inactive

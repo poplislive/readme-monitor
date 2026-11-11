@@ -36,7 +36,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from . import __version__, cli, config, credentials, discovery, runtime, scheduler
+from . import __version__, cli, config, credentials, discovery, launcher, runtime, scheduler
 from .config import REPO_RE, ConfigError, load
 from .db import DB, SPENT_SQL
 from .github import GitHub, GitHubError
@@ -194,6 +194,7 @@ class App:
         self.proc = None    # the last run process this server started
         self.thread = None  # simulation: the background run
         self.launch_token = None  # names the run this server launched last; see DB.request_cancel
+        self.desktop_code, self.desktop_code_at = None, 0.0  # desktop mode only (desktop.py); None: POST /auth is off
         self.heartbeat, self.poll = 15.0, 0.25
         self.demo = None
         if demo:
@@ -207,8 +208,12 @@ class App:
             db = DB(self.home / "state.db")
             db.set_setting("schedule_saved_at", _now())
             db.close()
-        elif not (self.home / "config.toml").exists():
-            shutil.copyfile(cli.EXAMPLE_CONFIG, self.home / "config.toml")  # what `init` does first
+        else:
+            if not (self.home / "config.toml").exists():
+                shutil.copyfile(cli.EXAMPLE_CONFIG, self.home / "config.toml")  # what `init` does first
+            # Create and migrate the database once, before any request: concurrent first opens of a new
+            # file race to switch it to WAL, and SQLite can refuse that with "database is locked".
+            DB(self.home / "state.db").close()
 
     # ---- helpers ------------------------------------------------------------
     def scrub(self, body: bytes) -> bytes:
@@ -252,9 +257,9 @@ class App:
         return bool(value), source
 
     def spawn(self, args: list[str]):
-        """A detached `python -m readme_monitor ...`: it outlives the page and this server."""
-        cmd = [sys.executable, "-m", "readme_monitor", *args, "--home", str(self.home)]
-        kw = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL, "cwd": str(PACKAGE.parent)}
+        """A detached `readme-monitor ...` (launcher.engine): it outlives the page and this server."""
+        cmd = [*launcher.engine(), *args, "--home", str(self.home)]
+        kw = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL, "cwd": str(launcher.workdir())}
         if os.name == "nt":
             kw["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
         else:
@@ -277,6 +282,23 @@ class App:
             log.exception("simulation run failed")
         finally:
             db.close()
+
+    def start_checked(self, ctx, dry_run: bool, repos=None, adopt=None) -> dict:
+        """Start a check unless something forbids it; shared by the page and the desktop shell's tray."""
+        with self.run_lock:  # two rapid requests start one cycle
+            if self.busy():
+                return {"ok": True, "started": False, "reason": "already_running"}
+            if not dry_run:
+                if not self.active(ctx):
+                    return {"ok": True, "started": False, "reason": "inactive"}
+                if ctx.db.globally_paused:
+                    return {"ok": True, "started": False, "reason": "paused"}
+                if not self.demo and runtime.maintenance(self.home):
+                    return {"ok": True, "started": False, "reason": "updating"}
+            if not self.credential("github")[0]:
+                return {"ok": True, "started": False, "reason": "credentials_missing"}
+            self.start(dry_run, repos, adopt)
+        return {"ok": True, "started": True}
 
     def start(self, dry_run: bool, repos: list[str] | None, adopt: str | None = None) -> None:
         self.launch_token = secrets.token_hex(16)
@@ -311,8 +333,11 @@ class App:
         if cfg.schedule.mode == "manual":
             notes.append("Manual mode: nothing runs until you start a check.")
         else:
-            notes.append("Checks run only while you are signed in to Windows and the computer is awake; a check missed while "
-                         "it was asleep or off runs once when it is available again.")
+            notes.append(f"{scheduler.name()} runs checks only while you are signed in and the computer is awake; a check missed "
+                         "while it was asleep or off runs once when it is available again, never as a burst.")
+            why = launcher.unstable_reason()
+            if why:
+                notes.append(f"Scheduled checks are not available in this copy: {why}.")
         rules = []  # a clause whose setting is zero says nothing true, so it is left out
         if cfg.quiet_minutes:
             rules.append(f"a repository must be quiet for {cfg.quiet_minutes} minutes after its last commit")
@@ -321,7 +346,11 @@ class App:
         rules.append("spending follows the daily and monthly limits" + (" with even pacing" if cfg.pacing == "even" else ""))
         notes.append("A check does not always produce an update: " + ", ".join(rules)
                      + ", and only changes relevant to managed sections lead to a new draft.")
-        return {"configured": s["configured"], "effective": s["effective"], "in_sync": s["in_sync"], "task": task,
+        stale = s.get("program", {}).get("current") is False
+        if stale:
+            notes.insert(0, f"The scheduled check still starts another copy of ReadmeMonitor ({s['program']['registered']}). "
+                            "Save the schedule again to point it at this application.")
+        return {"configured": s["configured"], "effective": s["effective"], "in_sync": s["in_sync"] and not stale, "task": task,
                 "summary": s["summary"], "next_checks": checks, "timezone_name": s["timezone_name"], "notes": notes}
 
     @staticmethod
@@ -343,7 +372,8 @@ class App:
                         problem=None if active else "Simulation: the worker is not enabled (in memory only).",
                         activation={"host": "DEMO-PC", "activated_at": _now(), "installation_id": "simulation"} if active else None)
         act = inst["activation"]
-        installation = {**{k: inst[k] for k in ("home", "host", "account", "platform", "supported", "active", "problem", "host_lock")},
+        installation = {**{k: inst[k] for k in ("home", "host", "account", "platform", "supported", "active", "problem", "host_lock",
+                                                "scheduler", "credential_store", "scheduling_unavailable", "desktop")},
                         "activation": {k: act[k] for k in ("host", "activated_at", "installation_id", "migrated_from") if k in act} if act else None,
                         "can_change_home": not active and not self.demo}
         sched = self.schedule_view(ctx)
@@ -571,9 +601,13 @@ class Handler(BaseHTTPRequestHandler):
             url = urlsplit(self.path)
             query = parse_qs(url.query)
             if url.path == "/auth":
+                if method == "POST" and self.app.desktop_code is not None:
+                    return self._desktop_auth(host)
                 if method != "GET":
                     raise ApiError(405, "method_not_allowed", "use GET")
                 return self._auth(query)
+            if url.path == "/desktop-auth" and method == "GET":  # the desktop shell signs its window in from here
+                return self._page(200, "Starting ReadmeMonitor…")
             if url.path == "/api" or url.path.startswith("/api/"):
                 session = self._session()
                 if session is None:
@@ -615,6 +649,23 @@ class Handler(BaseHTTPRequestHandler):
         self.app.sessions[token] = secrets.token_urlsafe(32)
         self._send(302, b"", "text/plain", {"Location": "/", "Set-Cookie": f"rm_session={token}; HttpOnly; SameSite=Strict; Path=/",
                                            "Cache-Control": "no-store"})
+
+    def _desktop_auth(self, host: str):
+        """The desktop shell's sign-in: the per-launch code reached the shell over the helper's stdout
+        pipe and arrives here in a header from the shell's own window, never in a URL or on disk."""
+        if self.headers.get("Origin") != f"http://{host}":
+            raise ApiError(403, "bad_origin", "cross-site request refused")
+        app, code = self.app, self.headers.get("X-RM-Pair") or ""
+        with app.pair_lock:
+            want, fresh = app.desktop_code, time.time() - app.desktop_code_at <= PAIR_SECONDS
+            ok = bool(want) and fresh and hmac.compare_digest(want.encode(), code.encode())
+            if ok or not fresh:
+                app.desktop_code = ""  # single use; "" keeps POST /auth routed here until the shell asks for a new one
+        if not ok:
+            raise ApiError(403, "pairing_failed", "this sign-in code is no longer valid; the application requests a new one")
+        token = secrets.token_urlsafe(32)
+        app.sessions[token] = secrets.token_urlsafe(32)
+        self._send(204, b"", "text/plain", {"Set-Cookie": f"rm_session={token}; HttpOnly; SameSite=Strict; Path=/", "Cache-Control": "no-store"})
 
     def _static(self, path: str):
         root = WEB_ROOT.resolve()
@@ -769,7 +820,7 @@ class Handler(BaseHTTPRequestHandler):
             raise ApiError(400, "bad_path", "use an absolute path on a local drive")
         p = p.resolve()
         checkout = PACKAGE.parent if (PACKAGE.parent / "pyproject.toml").exists() else PACKAGE
-        if p.is_relative_to(PACKAGE) or p.is_relative_to(checkout):
+        if p.is_relative_to(PACKAGE) or p.is_relative_to(checkout) or (launcher.FROZEN and p.is_relative_to(launcher.workdir())):
             raise ApiError(400, "bad_path", "the runtime folder must be outside the program's own files")
         try:
             p.mkdir(parents=True, exist_ok=True)
@@ -931,7 +982,8 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 cli.register_task(ctx, ctx.cfg.schedule)  # only replaces the definition; a running check continues
             except RuntimeError as e:
-                raise ApiError(502, "task_registration_failed", f"Task Scheduler refused the schedule: {credentials.redact(str(e))[0][:300]}") from None
+                raise ApiError(502, "task_registration_failed",
+                               f"{scheduler.name()} did not take the schedule: {credentials.redact(str(e))[0][:300]}") from None
         return {"ok": True, "applied": True, "schedule": app.schedule_view(ctx)}
 
     # ---- work ---------------------------------------------------------------
@@ -952,19 +1004,7 @@ class Handler(BaseHTTPRequestHandler):
         return self._pause(ctx, body, False)
 
     def _start(self, ctx, dry_run: bool, repos=None, adopt=None) -> dict:
-        app = self.app
-        with app.run_lock:  # two rapid requests start one cycle
-            if app.busy():
-                return {"ok": True, "started": False, "reason": "already_running"}
-            if not dry_run:
-                if not app.active(ctx):
-                    return {"ok": True, "started": False, "reason": "inactive"}
-                if ctx.db.globally_paused:
-                    return {"ok": True, "started": False, "reason": "paused"}
-            if not app.credential("github")[0]:
-                return {"ok": True, "started": False, "reason": "credentials_missing"}
-            app.start(dry_run, repos, adopt)
-        return {"ok": True, "started": True}
+        return self.app.start_checked(ctx, dry_run, repos, adopt)
 
     def api_run_cycle(self, ctx, g, q, body, s):
         kind, repos = body.get("kind"), body.get("repos")

@@ -4,8 +4,10 @@ Anything that can spend money, send repository content to Claude (including free
 counting), write to GitHub or schedule work calls `require_active(home, host_lock)` first. The
 check uses the machine's real identity, not environment variables:
 
-- the Windows MachineGuid in HKLM (changing it needs administrator rights), so a folder copied
-  to another computer stays inactive there;
+- the machine identity the operating system keeps (Windows MachineGuid in HKLM, the macOS
+  IOPlatformUUID, the Linux /etc/machine-id; changing any of them needs administrator rights),
+  so a folder copied to another computer stays inactive there. It stays in the local activation
+  record and is never logged;
 - the activation record <home>/activation.json, written by `activate`, which names the folder,
   so a moved or copied folder on the same computer stays inactive too;
 - optionally [installation] host_lock, which pins the activation to one computer name.
@@ -18,12 +20,17 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import socket
+import subprocess
+import sys
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
 WINDOWS = os.name == "nt"
+SUPPORTED = sys.platform == "win32" or sys.platform == "darwin" or sys.platform.startswith("linux")
 ACTIVATION_FILE = "activation.json"
 LEGACY_FILE = "production-host.json"  # written by bind-host before 0.3.0
 POINTER_NAME = ".readme-monitor.json"
@@ -42,21 +49,39 @@ def hostname() -> str:
 
 
 def machine_guid() -> str | None:
-    if not WINDOWS:
-        return None
-    import winreg
+    """This computer's identity as the operating system records it, or None when it cannot be read.
+    (The name is historical: the activation.json field predates macOS and Linux support.)"""
+    if WINDOWS:
+        import winreg
 
-    try:
-        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Cryptography", 0,
-                             winreg.KEY_READ | winreg.KEY_WOW64_64KEY)
-        with key:
-            return str(winreg.QueryValueEx(key, "MachineGuid")[0]).lower()
-    except OSError:
-        return None
+        try:
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Cryptography", 0,
+                                 winreg.KEY_READ | winreg.KEY_WOW64_64KEY)
+            with key:
+                return str(winreg.QueryValueEx(key, "MachineGuid")[0]).lower()
+        except OSError:
+            return None
+    if sys.platform == "darwin":
+        try:
+            out = subprocess.run(["/usr/sbin/ioreg", "-rd1", "-c", "IOPlatformExpertDevice"], capture_output=True, text=True,
+                                 timeout=10).stdout
+        except (OSError, subprocess.SubprocessError):
+            return None
+        m = re.search(r'"IOPlatformUUID"\s*=\s*"([0-9A-Fa-f-]{36})"', out)
+        return m.group(1).lower() if m else None
+    if sys.platform.startswith("linux"):
+        for p in ("/etc/machine-id", "/var/lib/dbus/machine-id"):
+            try:
+                value = Path(p).read_text(encoding="ascii").strip().lower()
+            except (OSError, UnicodeDecodeError):
+                continue
+            if re.fullmatch(r"[0-9a-f]{32}", value):
+                return value
+    return None
 
 
 def pointer_path() -> Path:
-    """Names the one active runtime folder of this Windows account."""
+    """Names the one active runtime folder of this operating-system account."""
     return Path.home() / POINTER_NAME
 
 
@@ -95,8 +120,8 @@ def activation_problem(home: Path | None, host_lock: str | None = None) -> str |
     """None when live work may run with this runtime folder, else one plain sentence saying why not."""
     if home is None:
         return "No runtime folder is selected."
-    if not WINDOWS:
-        return "The worker can only be enabled on Windows; this computer runs another system, so only offline commands and dry runs work here."
+    if not SUPPORTED:
+        return "The worker can only be enabled on Windows, macOS or Linux; only offline commands and dry runs work on this system."
     rec = activation(home)
     if rec is None:
         if (home / ACTIVATION_FILE).exists():
@@ -107,7 +132,7 @@ def activation_problem(home: Path | None, host_lock: str | None = None) -> str |
         return f"The worker is not enabled for {home} yet; {ENABLE_HINT}."
     guid = machine_guid()
     if not guid:
-        return "The Windows MachineGuid could not be read, so this computer cannot be identified; the worker stays inactive."
+        return "The operating system's machine identity could not be read, so this computer cannot be identified; the worker stays inactive."
     if rec.get("machine_guid") != guid:
         return ("This runtime folder was activated on another computer or copied from one; it stays inactive until you "
                 f"{ENABLE_HINT} here deliberately.")
@@ -135,16 +160,16 @@ def activate(home: Path, account: str, host_lock: str | None = None) -> dict:
     """Enable live work for this runtime folder on this computer (deliberate, per folder).
     A mismatched or copied record is archived, never deleted; the ledger is kept as it is."""
     home = home.resolve()
-    if not WINDOWS:
-        raise NotActivated("Activation refused: the worker can only be enabled on Windows.")
+    if not SUPPORTED:
+        raise NotActivated("Activation refused: the worker can only be enabled on Windows, macOS or Linux.")
     guid = machine_guid()
     if not guid:
-        raise NotActivated("Activation refused: the Windows MachineGuid could not be read.")
+        raise NotActivated("Activation refused: the operating system's machine identity could not be read.")
     if host_lock and host_lock.upper() != hostname().upper():
         raise NotActivated(f"Activation refused: [installation] host_lock allows only {host_lock}; this computer is {hostname()}.")
     other = _pointed_home()
     if other is not None and not _same(other, home) and activation_problem(other) is None:
-        raise NotActivated(f"Activation refused: this Windows account already has an active runtime folder, {other}. "
+        raise NotActivated(f"Activation refused: this account already has an active runtime folder, {other}. "
                            f'Deactivate that one first (readme-monitor deactivate --home "{other}").')
     if activation_problem(home, host_lock) is None:
         data = activation(home)
@@ -176,6 +201,41 @@ def deactivate(home: Path) -> dict:
     return {"task_removed": removed, "revoked": str(revoked) if revoked else None}
 
 
+MAINTENANCE_FILE = "maintenance.json"
+MAINTENANCE_HOURS = 6  # a flag left by an update that never finished stops blocking checks after this
+
+
+def maintenance(home: Path) -> dict | None:
+    """The application update in progress for this runtime folder, or None. Every worker entry point
+    checks it while holding worker.lock, so a scheduled check never runs on half-installed files. A
+    stale flag (the update was abandoned) is ignored, never deleted: `end_maintenance` clears it."""
+    rec = _read(home / MAINTENANCE_FILE)
+    if not rec:
+        return None
+    try:
+        age = time.time() - float(rec.get("started", 0))
+    except (TypeError, ValueError):
+        age = MAINTENANCE_HOURS * 3600
+    return rec if 0 <= age < MAINTENANCE_HOURS * 3600 else None
+
+
+def begin_maintenance(home: Path, from_version: str, to_version: str, backup: str | None) -> dict:
+    """Callers hold worker.lock, so no check is running when the flag appears."""
+    rec = {"started": time.time(), "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+           "from_version": from_version, "to_version": to_version, "backup": backup}
+    _write(home / MAINTENANCE_FILE, rec)
+    return rec
+
+
+def end_maintenance(home: Path) -> dict | None:
+    """Clear the flag (kept as maintenance.finished-<stamp>.json for the record). Pause and schedule are not touched."""
+    path = home / MAINTENANCE_FILE
+    rec = _read(path)
+    if path.exists():
+        os.replace(path, home / f"maintenance.finished-{_stamp()}.json")
+    return rec
+
+
 def migrate_legacy(home: Path) -> str:
     """Carry an activation from production-host.json (bind-host, before 0.3.0) forward, only on a
     full match of machine, folder and host name. Idempotent and safe to rerun; a mismatch leaves
@@ -189,7 +249,7 @@ def migrate_legacy(home: Path) -> str:
     if legacy is None:
         return "none"
     guid = machine_guid()
-    if not (WINDOWS and guid and legacy.get("machine_guid") == guid and _same(legacy.get("home", ""), home)
+    if not (SUPPORTED and guid and legacy.get("machine_guid") == guid and _same(legacy.get("home", ""), home)
             and str(legacy.get("host", "")).upper() == hostname()):
         return "mismatch"
     other = _pointed_home()

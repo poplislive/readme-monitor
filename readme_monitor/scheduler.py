@@ -1,5 +1,9 @@
-"""Windows Task Scheduler registration. Task Scheduler is the only scheduling authority: the
-worker never sleeps or loops itself, so a missed or overlapping start is Windows' policy below."""
+"""Scheduled checks through the operating system's own scheduler: Windows Task Scheduler here,
+launchd user agents (sched_launchd) on macOS and systemd user timers (sched_systemd) on Linux.
+The system scheduler is the only scheduling authority: the worker never sleeps or loops itself, so
+a missed or overlapping start is the scheduler's policy, set below to skip overlaps and to catch up
+once, never in a burst. The public functions (register, definition, uninstall, query,
+query_schedule, run_now) dispatch to the platform's backend."""
 
 from __future__ import annotations
 
@@ -13,6 +17,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from xml.sax.saxutils import escape
 
+from . import launcher
 from .config import WEEKDAYS, Schedule
 
 TASK_NAME = r"\ReadmeMonitor\Sync"
@@ -20,16 +25,84 @@ NS = {"t": "http://schemas.microsoft.com/windows/2004/02/mit/task"}
 DAY_NAMES = dict(zip(WEEKDAYS, ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")))
 
 
+class Unsupported(RuntimeError):
+    """The system scheduler cannot carry this schedule faithfully; nothing was registered."""
+
+
+def _backend():
+    if sys.platform == "darwin":
+        from . import sched_launchd as b
+    elif sys.platform.startswith("linux"):
+        from . import sched_systemd as b
+    else:
+        return None
+    return b
+
+
+def name() -> str:
+    b = _backend()
+    return b.NAME if b else "Windows Task Scheduler" if os.name == "nt" else "no supported scheduler"
+
+
 def current_user() -> str:
-    domain = os.environ.get("USERDOMAIN")
+    domain = os.environ.get("USERDOMAIN") if os.name == "nt" else None
     user = getpass.getuser()
     return f"{domain}\\{user}" if domain else user
 
 
-def interpreter() -> Path:
-    exe = Path(sys.executable)
-    windowless = exe.with_name("pythonw.exe")  # no console window at every check
-    return windowless if windowless.exists() else exe
+def scheduled_argv(home: Path, config: Path) -> list[str]:
+    """The command every scheduler starts: one scheduled cycle of the installed engine, then exit."""
+    return [*launcher.engine(windowless=True), "run-once", "--trigger", "scheduled", "--home", str(home), "--config", str(config)]
+
+
+def _stable():
+    why = launcher.unstable_reason()
+    if why:
+        raise Unsupported(f"Scheduled checks are not available: {why}.")
+
+
+def definition(schedule: Schedule, home: Path, config: Path, time_limit_minutes: int, now: datetime | None = None) -> str:
+    """The text the scheduler would register (install-task --dry-run)."""
+    b = _backend()
+    if b:
+        return b.definition(schedule, scheduled_argv(home, config), launcher.workdir(), time_limit_minutes)
+    return task_xml(launcher.engine(windowless=True), launcher.workdir(), home, config, schedule, time_limit_minutes, current_user(), now)
+
+
+def registered_program() -> str | None:
+    """The program the registered scheduled check starts, or None when nothing is registered."""
+    if b := _backend():
+        return b.registered_program()
+    try:
+        r = _schtasks("/Query", "/TN", TASK_NAME, "/XML")
+        if r.returncode != 0 or not r.stdout.strip():
+            return None
+        root = ET.fromstring(re.sub(r"^\s*<\?xml[^>]*\?>", "", r.stdout))
+    except (RuntimeError, ET.ParseError):
+        return None
+    cmd = root.findtext("t:Actions/t:Exec/t:Command", None, NS)
+    return cmd.strip().strip('"') if cmd else None
+
+
+def program_is_current(registered: str | None) -> bool | None:
+    """Whether a registered check starts this copy's engine (None: nothing registered). A check left
+    behind by another copy (an earlier source install, a moved application) is reported, not hidden."""
+    if not registered:
+        return None
+    want = launcher.engine(windowless=True)[0]
+    try:
+        return os.path.normcase(str(Path(registered).resolve())) == os.path.normcase(str(Path(want).resolve()))
+    except (OSError, ValueError):
+        return False
+
+
+def register(schedule: Schedule, home: Path, config: Path, time_limit_minutes: int) -> str:
+    """Register (or replace) the scheduled check. Replacing it neither starts nor stops a check."""
+    _stable()
+    b = _backend()
+    if b:
+        return b.install(schedule, scheduled_argv(home, config), launcher.workdir(), time_limit_minutes)
+    return install(definition(schedule, home, config, time_limit_minutes), home / "task" / "ReadmeMonitor-Sync.xml")
 
 
 def _start(schedule: Schedule, now: datetime | None) -> str:
@@ -73,13 +146,16 @@ def _triggers(schedule: Schedule, user: str, now: datetime | None) -> str:
   </Triggers>"""
 
 
-def task_xml(python_exe: Path, workdir: Path, home: Path, config: Path, schedule: Schedule, time_limit_minutes: int, user: str,
+def task_xml(engine: list[str], workdir: Path, home: Path, config: Path, schedule: Schedule, time_limit_minutes: int, user: str,
              now: datetime | None = None) -> str:
-    """The task definition. Registering it again (a schedule change) only replaces the definition:
-    it neither starts a check nor stops one already running; IgnoreNew means a start that falls
-    inside a running check is skipped, and StartWhenAvailable gives one catch-up start after the
-    computer was off or asleep, never a burst."""
-    args = f'-m readme_monitor run-once --trigger scheduled --home "{home}" --config "{config}"'
+    """The task definition. `engine` is launcher.engine(): the interpreter and `-m readme_monitor`
+    in a checkout, or the installed engine executable. Registering it again (a schedule change) only
+    replaces the definition: it neither starts a check nor stops one already running; IgnoreNew means
+    a start that falls inside a running check is skipped, and StartWhenAvailable gives one catch-up
+    start after the computer was off or asleep, never a burst."""
+    exe, *pre = engine
+    args = subprocess.list2cmdline([*pre, "run-once", "--trigger", "scheduled", "--home", str(home), "--config", str(config)])
+    python_exe = exe
     return f"""<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
@@ -178,7 +254,7 @@ def summary(schedule: Schedule) -> str:
     where = "UTC" if schedule.timezone == "utc" else "this computer's time"
     if schedule.mode == "weekly" and schedule.timezone == "utc":
         # Only a task registered outside ReadmeMonitor can carry this (config refuses it).
-        where = "UTC; unsupported: Windows counts the weekdays in this computer's time, save the schedule again"
+        where = "UTC; unsupported: the scheduler counts the weekdays in this computer's time, save the schedule again"
     days = set(schedule.weekdays) if schedule.mode == "weekly" else set(WEEKDAYS)
     if days == set(WEEKDAYS):
         label = "Every day"
@@ -241,6 +317,8 @@ def install(xml: str, xml_path: Path) -> str:
 
 
 def uninstall() -> str:
+    if b := _backend():
+        return b.uninstall()
     r = _schtasks("/Delete", "/TN", TASK_NAME, "/F")
     if r.returncode != 0:
         raise RuntimeError((r.stderr or r.stdout).strip())
@@ -248,7 +326,10 @@ def uninstall() -> str:
 
 
 def query() -> dict | None:
-    """Selected fields from `schtasks /Query /V`, or None when the task is not installed."""
+    """Selected fields from `schtasks /Query /V` (the same keys from the other backends), or None
+    when no scheduled check is registered."""
+    if b := _backend():
+        return b.query()
     if os.name != "nt":
         return None
     r = _schtasks("/Query", "/TN", TASK_NAME, "/V", "/FO", "LIST")
@@ -264,7 +345,9 @@ def query() -> dict | None:
 
 
 def query_schedule() -> Schedule | None:
-    """The schedule Windows actually holds for the task, or None when no task exists."""
+    """The schedule the system scheduler actually holds, or None when nothing is registered."""
+    if b := _backend():
+        return b.query_schedule()
     try:
         r = _schtasks("/Query", "/TN", TASK_NAME, "/XML")
     except RuntimeError:  # not Windows
@@ -278,6 +361,8 @@ def query_schedule() -> Schedule | None:
 
 
 def run_now() -> str:
+    if b := _backend():
+        return b.run_now()
     r = _schtasks("/Run", "/TN", TASK_NAME)
     if r.returncode != 0:
         raise RuntimeError((r.stderr or r.stdout).strip())

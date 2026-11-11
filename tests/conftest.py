@@ -34,6 +34,9 @@ def offline_host(request, monkeypatch, tmp_path_factory):
         return subprocess.CompletedProcess(["schtasks.exe", *args], 1, "", "ERROR: The system cannot find the file specified.")
 
     monkeypatch.setattr(scheduler, "_schtasks", no_task_scheduler)
+    # Every OS exercises the Task Scheduler adapter against the stand-in above, so no test reaches a
+    # real launchctl or systemctl; test_desktop_platforms.py covers those backends with their own stand-ins.
+    monkeypatch.setattr(scheduler, "_backend", lambda: None)
     if "real_host" not in request.keywords:
         monkeypatch.setattr(runtime, "require_active", lambda home, host_lock=None: None)
     return calls

@@ -58,7 +58,7 @@ def test_a_failure_to_store_an_event_does_not_fail_the_cycle(env, monkeypatch):
 
 def test_a_disabled_trigger_is_not_reported_as_the_schedule():
     s = scheduler.Schedule(mode="daily", time="09:00")
-    xml = scheduler.task_xml(scheduler.Path("p.exe"), scheduler.Path("."), scheduler.Path("h"), scheduler.Path("h/c.toml"), s, 15, "user")
+    xml = scheduler.task_xml(["p.exe"], scheduler.Path("."), scheduler.Path("h"), scheduler.Path("h/c.toml"), s, 15, "user")
     assert scheduler.parse_task_xml(xml).mode == "daily"
     off = xml.replace("<Enabled>true</Enabled>\n    </CalendarTrigger>", "<Enabled>false</Enabled>\n    </CalendarTrigger>")
     assert off != xml and scheduler.parse_task_xml(off).mode == "manual"

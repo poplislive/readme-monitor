@@ -11,6 +11,7 @@ import json
 import os
 import re
 import secrets
+import sys
 import tomllib
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
@@ -328,7 +329,7 @@ def _schedule(d: dict, poll: int) -> Schedule:
         # Measured on a real Task Scheduler: weekdays are counted in local days even for a UTC time,
         # so "Wed 02:00 UTC" would fire on Thursday UTC in a zone behind UTC.
         raise ConfigError("a weekly schedule uses this computer's time: set schedule.timezone = \"local\" "
-                          "(Windows counts weekdays in local time, so a UTC weekday could be a day off)")
+                          "(the system schedulers count weekdays in local time, so a UTC weekday could be a day off)")
     return Schedule(mode=mode, interval_minutes=_num(d.get("interval_minutes", poll), "schedule.interval_minutes", 1, 1440, int),
                     time=time, weekdays=tuple(x for x in WEEKDAYS if x in days), timezone=tz)
 
@@ -363,13 +364,17 @@ def default_home() -> Path:
     env = os.environ.get("READMEMONITOR_HOME")
     if env:
         return Path(env).expanduser().resolve()
-    pointed = runtime._pointed_home()  # the folder this Windows account activated
+    pointed = runtime._pointed_home()  # the folder this account activated (an existing installation stays where it is)
     if pointed is not None:
         return pointed.resolve()
     if os.name == "nt":
         # Not %LOCALAPPDATA%: MSIX-packaged apps redirect AppData writes to a private copy.
         return (Path.home() / "ReadmeMonitor").resolve()
-    return (Path.home() / ".local" / "share" / "ReadmeMonitor").resolve()
+    if sys.platform == "darwin":
+        return (Path.home() / "Library" / "Application Support" / "ReadmeMonitor").resolve()
+    xdg = os.environ.get("XDG_DATA_HOME")
+    base = Path(xdg) if xdg and Path(xdg).is_absolute() else Path.home() / ".local" / "share"
+    return (base / "ReadmeMonitor").resolve()
 
 
 # ---- writer -------------------------------------------------------------------------------

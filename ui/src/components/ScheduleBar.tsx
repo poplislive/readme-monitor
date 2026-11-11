@@ -66,7 +66,7 @@ export function ScheduleBar({ state, compact = false, onRunNow, onPauseToggle }:
                   <option value="local">This computer's time ({sch.timezone_name})</option>{draft.mode !== "weekly" && <option value="utc">UTC</option>}
                 </select>
               </label>
-              {draft.mode === "weekly" && <p id="sch-tz-note" className="small muted">Weekly checks use this computer's time, because Windows counts weekdays in local time.</p>}
+              {draft.mode === "weekly" && <p id="sch-tz-note" className="small muted">Weekly checks use this computer's time, because {state.installation.scheduler} counts weekdays in local time.</p>}
             </>
           )}
           {draft.mode === "weekly" && (
@@ -96,11 +96,11 @@ export function ScheduleBar({ state, compact = false, onRunNow, onPauseToggle }:
       </div>
       <div className="sch-readback small">
         {save.s === "error" && <Notice tone="fail">{save.msg} Your choices are kept; try saving again.</Notice>}
-        {save.s === "saved" && !save.applied && <Notice tone="attention">Saved, but not applied to Windows Task Scheduler: {save.reason ?? "the worker is not enabled on this computer."}</Notice>}
+        {save.s === "saved" && !save.applied && <Notice tone="attention">Saved, but not applied to {state.installation.scheduler}: {save.reason ?? "the worker is not enabled on this computer."}</Notice>}
         {!dirty && sch.effective && (sch.in_sync
-          ? <p><Chip tone="ok" icon="check">In effect</Chip> Windows Task Scheduler confirms: {describe(sch.effective, sch.timezone_name).replace(/^E/, "e")}.{sch.task?.next_run && <> Next run {relative(sch.task.next_run)}.</>}</p>
-          : <p><Chip tone="attention" icon="alert">Out of step</Chip> Windows Task Scheduler reports {describe(sch.effective, sch.timezone_name).toLowerCase()}, not the saved schedule. Save again to re-apply it.</p>)}
-        {!dirty && !sch.effective && state.installation.active && sch.configured.mode !== "manual" && <p><Chip tone="attention" icon="alert">No scheduled task</Chip> Windows Task Scheduler has no task for this installation yet.</p>}
+          ? <p><Chip tone="ok" icon="check">In effect</Chip> {state.installation.scheduler} confirms: {describe(sch.effective, sch.timezone_name).replace(/^E/, "e")}.{sch.task?.next_run && <> Next run {relative(sch.task.next_run)}.</>}</p>
+          : <p><Chip tone="attention" icon="alert">Out of step</Chip> {state.installation.scheduler} reports {describe(sch.effective, sch.timezone_name).toLowerCase()}, not the saved schedule. Save again to re-apply it.</p>)}
+        {!dirty && !sch.effective && state.installation.active && sch.configured.mode !== "manual" && <p><Chip tone="attention" icon="alert">No scheduled task</Chip> {state.installation.scheduler} has no scheduled check for this installation yet.</p>}
         {sch.notes.map((n) => <p key={n} className="muted">{n}</p>)}
       </div>
     </section>

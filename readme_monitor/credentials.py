@@ -1,4 +1,4 @@
-"""Credential lookup (Windows Credential Manager via keyring) and secret redaction."""
+"""Credential lookup (the operating system's credential store via keyring) and secret redaction."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import fnmatch
 import logging
 import os
 import re
+import sys
 
 SERVICE = "ReadmeMonitor"
 KINDS = {
@@ -15,7 +16,7 @@ KINDS = {
 
 
 def get(kind: str) -> tuple[str | None, str]:
-    """Return (value, source). Credential Manager first, then an environment variable."""
+    """Return (value, source). The credential store first, then an environment variable."""
     user, env = KINDS[kind]
     try:
         import keyring
@@ -31,9 +32,31 @@ def get(kind: str) -> tuple[str | None, str]:
     return None, "missing"
 
 
+def store_name() -> str:
+    if sys.platform == "win32":
+        return "Windows Credential Manager"
+    if sys.platform == "darwin":
+        return "the macOS Keychain"
+    return "the Secret Service keyring"
+
+
+def _require_secure_backend():
+    """Never fall back to a plaintext file: only the operating system's own stores are accepted."""
+    import keyring
+
+    kr = keyring.get_keyring()
+    chain = getattr(kr, "backends", None) or [kr]
+    names = [f"{type(b).__module__}.{type(b).__name__}" for b in chain]
+    if not names or any(n.startswith("keyrings.alt") or n.startswith("keyring.backends.fail") or n.startswith("keyring.backends.null")
+                        for n in names):
+        raise RuntimeError(f"no secure credential store is available ({', '.join(names) or 'none'}); "
+                           f"unlock or set up {store_name()} and try again")
+
+
 def store(kind: str, value: str):
     import keyring
 
+    _require_secure_backend()
     keyring.set_password(SERVICE, KINDS[kind][0], value)
 
 

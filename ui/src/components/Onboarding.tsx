@@ -86,7 +86,7 @@ function RuntimeStep({ state }: { state: State }) {
   const [home, setHome] = useState(ins.home);
   return (
     <div className="stack">
-      <Facts rows={[["Runtime folder", <code>{ins.home}</code>], ["Computer", ins.host], ["Windows account", ins.account], ["Platform", <>{ins.platform} {ins.supported ? <Chip tone="ok" icon="check">Supported</Chip> : <Chip tone="fail" icon="x">Not supported</Chip>}</>],
+      <Facts rows={[["Runtime folder", <code>{ins.home}</code>], ["Computer", ins.host], ["Account", ins.account], ["Platform", <>{ins.platform} {ins.supported ? <Chip tone="ok" icon="check">Supported</Chip> : <Chip tone="fail" icon="x">Not supported</Chip>}</>],
         ["Worker", ins.active ? <Chip tone="ok" icon="check">Enabled{ins.activation ? ` since ${new Date(ins.activation.activated_at).toLocaleDateString()}` : ""}</Chip> : <Chip tone="neutral" icon="plug">Not enabled</Chip>]]} />
       {ins.problem && <Notice tone="attention">{ins.problem}</Notice>}
       {!ins.active && (
@@ -96,7 +96,7 @@ function RuntimeStep({ state }: { state: State }) {
             <form className="field-row" onSubmit={(e) => { e.preventDefault(); a.run(() => api.setHome(home)); }}>
               <label className="field grow"><span>Runtime folder</span><input value={home} onChange={(e) => setHome(e.target.value)} spellCheck={false} aria-describedby="home-help" /></label>
               <button className="btn" disabled={a.busy || home === ins.home}>Use this folder</button>
-              <p id="home-help" className="small muted full">An absolute folder on a local drive that this account can write to. It holds the database, drafts and logs; credentials stay in Windows Credential Manager.</p>
+              <p id="home-help" className="small muted full">An absolute folder on a local drive that this account can write to. It holds the database, drafts and logs; credentials stay in {ins.credential_store}.</p>
             </form>
           )}
           {!confirming ? <button className="btn primary" disabled={!ins.supported || a.busy} onClick={() => setConfirming(true)}><Icon name="plug" />Enable the worker on this computer</button> : (
@@ -143,7 +143,7 @@ function GithubStep({ state }: { state: State }) {
   return (
     <div className="stack">
       <SecretField label="GitHub token" saveLabel="Verify and store token" present={gh.present} onRemove={() => a.run(() => api.deleteCredential("github"))}
-        help={<>Use a <strong>fine-grained personal access token</strong> limited to the repositories you want monitored, with <em>Contents: read and write</em>, <em>Pull requests: read and write</em> and <em>Metadata: read</em>. A classic token with the <code>repo</code> scope also works but grants more than needed. The token goes to Windows Credential Manager and is never shown again.</>}
+        help={<>Use a <strong>fine-grained personal access token</strong> limited to the repositories you want monitored, with <em>Contents: read and write</em>, <em>Pull requests: read and write</em> and <em>Metadata: read</em>. A classic token with the <code>repo</code> scope also works but grants more than needed. The token goes to {state.installation.credential_store} and is never shown again.</>}
         onSave={async (v) => { const r = await a.run(() => api.setCredential("github", v)); if (r) setWho(r); return !!r; }} />
       {a.err && <Notice tone="fail">{a.err}</Notice>}
       {gh.present && <Facts rows={[["Signed in as", gh.login ?? who?.login ?? "unknown"], ["Token type", who?.token_kind === "classic" ? "Classic" : who?.token_kind ? `${who.token_kind[0].toUpperCase()}${who.token_kind.slice(1)}` : "Stored earlier"], ...(who?.scopes ? [["Scopes", who.scopes] as [string, ReactNode]] : []), ["What it can see", cov ? coverageText(cov) : "Checking…"]]} />}
@@ -253,7 +253,7 @@ function ModelStep({ state }: { state: State }) {
       <Facts rows={[["Provider", "Anthropic"], ["Paid generation", ready ? <Chip tone="ok" icon="check">Can run within your limits</Chip> : <Chip tone="neutral" icon="minus">Off</Chip>]]} />
       <p className="small">Paid generation stays off until an Anthropic key and all three limits are set. Repositories without source export never need it.</p>
       <SecretField label="Anthropic API key" saveLabel="Store key" present={state.credentials.anthropic.present} onRemove={() => a.run(() => api.deleteCredential("anthropic"))}
-        help="Stored in Windows Credential Manager and never shown again. Only this installation's own calls are counted against your limits." onSave={async (v) => !!(await a.run(() => api.setCredential("anthropic", v)))} />
+        help={`Stored in ${state.installation.credential_store} and never shown again. Only this installation's own calls are counted against your limits.`} onSave={async (v) => !!(await a.run(() => api.setCredential("anthropic", v)))} />
       <form className="stack" onSubmit={(e) => { e.preventDefault(); if (!anyBad) a.run(() => api.putSettings({ model: model.trim(), effort, budget: { per_run_usd: num(lim.run), daily_usd: num(lim.day), monthly_usd: num(lim.month), pacing } })); }} noValidate>
         <div className="field-row">
           <label className="field grow"><span>Model id</span><input value={model} onChange={(e) => setModel(e.target.value)} spellCheck={false} aria-invalid={!model.trim()} aria-describedby="model-err" />
@@ -346,7 +346,8 @@ function DryRunStep({ state, onFinish }: { state: State; onFinish: () => void })
       <h3 className="h3">Start</h3>
       {!state.installation.active ? <Notice tone="attention">Enable the worker on this computer (step 1) before starting.</Notice> : (
         <>
-          <p className="small">{manual ? "Your schedule is manual: checks happen only when you choose Run now." : `Start applies your schedule (${state.schedule.summary.toLowerCase()}) to Windows Task Scheduler.`}</p>
+          <p className="small">{manual ? "Your schedule is manual: checks happen only when you choose Run now." : `Start applies your schedule (${state.schedule.summary.toLowerCase()}) to ${state.installation.scheduler}.`}</p>
+          {!manual && state.installation.scheduling_unavailable && <Notice tone="attention">Scheduled checks are not available in this copy: {state.installation.scheduling_unavailable}.</Notice>}
           <button className="btn primary" disabled={a.busy || !state.onboarding.steps.find((s) => s.id === "dry_run")?.done} onClick={async () => { const r = await a.run(() => api.putSchedule(state.schedule.configured)); if (r) onFinish(); }}>Start monitoring</button>
           {!state.onboarding.steps.find((s) => s.id === "dry_run")?.done && <p className="small muted">Start is available once the backend records a finished dry run.</p>}
         </>

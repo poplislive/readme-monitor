@@ -421,7 +421,7 @@ def test_criterion_07_daylight_saving_and_calendar_edges_keep_the_wall_clock():
 def xml_args(schedule):
     from pathlib import Path
 
-    return Path("python.exe"), Path("src"), Path("rt"), Path("rt/config.toml"), schedule, 15, f"{NEUTRAL}\\sam"
+    return ["python.exe", "-m", "readme_monitor"], Path("src"), Path("rt"), Path("rt/config.toml"), schedule, 15, f"{NEUTRAL}\\sam"
 
 
 def test_criterion_07_missed_runs_make_one_catch_up_and_a_start_inside_a_running_check_is_ignored(env):

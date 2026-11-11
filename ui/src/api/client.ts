@@ -66,6 +66,7 @@ export const RUN_REFUSALS: Record<string, string> = {
   inactive: "The worker is not enabled on this computer yet.",
   paused: "Monitoring is paused. Resume it first.",
   credentials_missing: "A required credential is missing. Add it in Setup.",
+  updating: "An application update is being installed. Checks resume when it finishes.",
 };
 
 export const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));

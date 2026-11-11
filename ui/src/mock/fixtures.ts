@@ -67,6 +67,7 @@ export function buildState(s: Scenario): State {
     version: "0.3.0", simulation: true, now: iso(0), cursor: 0,
     installation: {
       home: "C:\\Users\\example\\AppData\\Local\\ReadmeMonitor", host: "WORKSTATION-1", account: "example", platform: "Windows 11",
+      scheduler: "Windows Task Scheduler", credential_store: "Windows Credential Manager", scheduling_unavailable: null, desktop: false,
       supported: true, active, problem: active ? null : "The worker is not enabled on this computer, so nothing can spend, publish or be scheduled.",
       activation: active ? { host: "WORKSTATION-1", activated_at: iso(-60 * 24 * 3), installation_id: "inst-7f3a" } : null,
       host_lock: null, can_change_home: !active,

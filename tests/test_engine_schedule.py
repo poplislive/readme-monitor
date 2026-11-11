@@ -41,7 +41,7 @@ def zone(name):
 
 
 def xml_for(s: Schedule, now=datetime(2026, 3, 6, 8, 0)) -> str:
-    return task_xml(Path(r"C:\Python\pythonw.exe"), Path(r"C:\src"), Path(r"C:\rt"), Path(r"C:\rt\config.toml"), s, 15,
+    return task_xml([r"C:\Python\pythonw.exe", "-m", "readme_monitor"], Path(r"C:\src"), Path(r"C:\rt"), Path(r"C:\rt\config.toml"), s, 15,
                     r"WORKSTATION-1\someone", now=now)
 
 
@@ -98,7 +98,7 @@ def test_query_schedule_reads_back_or_reports_no_task(monkeypatch):
     (Schedule(mode="daily", time="09:00"), "Every day at 09:00 (this computer's time)"),
     (Schedule(mode="weekly", time="09:00"), "Weekdays at 09:00 (this computer's time)"),
     (Schedule(mode="weekly", time="06:00", weekdays=("sat", "sun"), timezone="utc"),
-     "Weekends at 06:00 (UTC; unsupported: Windows counts the weekdays in this computer's time, save the schedule again)"),
+     "Weekends at 06:00 (UTC; unsupported: the scheduler counts the weekdays in this computer's time, save the schedule again)"),
     (Schedule(mode="weekly", time="07:30", weekdays=("mon", "wed", "fri")), "Mon, Wed and Fri at 07:30 (this computer's time)"),
 ])
 def test_summary(s, text):
@@ -132,7 +132,8 @@ def test_next_checks_utc_interval_and_manual():
     assert all(t.tzinfo == timezone.utc for t in next_checks(Schedule(mode="daily"), utc(2026, 1, 1)))  # the computer's own zone
 
 
-def test_install_task_uses_the_configured_schedule_and_interval_override(tmp_path, capsys):
+def test_install_task_uses_the_configured_schedule_and_interval_override(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(scheduler, "_backend", lambda: None)  # the Task Scheduler rendering, on every OS
     (tmp_path / "config.toml").write_text('[schedule]\nmode = "daily"\ntime = "06:30"\n', encoding="utf-8")
     assert cli.main(["install-task", "--dry-run", "--home", str(tmp_path)]) == 0
     assert parse_task_xml(capsys.readouterr().out.split("\n", 1)[1]) == Schedule(mode="daily", time="06:30")
@@ -147,7 +148,7 @@ def test_install_task_uses_the_configured_schedule_and_interval_override(tmp_pat
 def test_read_back_understands_the_offset_form_windows_returns_for_a_utc_boundary():
     # Seen on a real Task Scheduler: a boundary registered as 06:30Z is handed back as 01:30-05:00.
     s = scheduler.Schedule(mode="daily", time="06:30", timezone="utc")
-    xml = scheduler.task_xml(Path("p.exe"), Path("."), Path("h"), Path("h/config.toml"), s, 15, "user")
+    xml = scheduler.task_xml(["p.exe"], Path("."), Path("h"), Path("h/config.toml"), s, 15, "user")
     back = re.sub(r"<StartBoundary>(\d{4}-\d\d-\d\d)T06:30:00Z</StartBoundary>", r"<StartBoundary>\1T01:30:00-05:00</StartBoundary>", xml)
     assert back != xml and scheduler.parse_task_xml(back) == scheduler.parse_task_xml(xml)
     assert scheduler.summary(scheduler.parse_task_xml(back)) == scheduler.summary(s)

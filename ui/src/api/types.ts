@@ -64,6 +64,11 @@ export interface State {
   cursor: number;
   installation: {
     home: string; host: string; account: string; platform: string;
+    /** The system scheduler and credential store of this computer, named for people (e.g. "Windows Task Scheduler"). */
+    scheduler: string; credential_store: string;
+    /** Why this copy cannot register scheduled checks (an AppImage), or null. */
+    scheduling_unavailable: string | null;
+    desktop: boolean;
     supported: boolean; active: boolean; problem: string | null;
     activation: { host: string; activated_at: Iso; installation_id: string; migrated_from?: string } | null;
     host_lock: string | null; can_change_home: boolean;

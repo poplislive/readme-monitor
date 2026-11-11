@@ -94,9 +94,9 @@ def test_deactivate_removes_the_task_and_keeps_data(pc, monkeypatch):
     assert not runtime.pointer_path().exists()
 
 
-def test_not_windows_cannot_be_activated(pc, monkeypatch):
-    monkeypatch.setattr(runtime, "WINDOWS", False)
-    assert "only be enabled on Windows" in runtime.activation_problem(pc)
+def test_unsupported_platform_cannot_be_activated(pc, monkeypatch):
+    monkeypatch.setattr(runtime, "SUPPORTED", False)
+    assert "only be enabled on Windows, macOS or Linux" in runtime.activation_problem(pc)
     with pytest.raises(runtime.NotActivated):
         runtime.activate(pc, "u")
 

@@ -204,7 +204,8 @@ def assert_shapes(c: Client):
     st, state = c.json("GET", "/api/state")
     assert st == 200 and set(state) == STATE_KEYS
     assert set(state["installation"]) == {"home", "host", "account", "platform", "supported", "active", "problem", "activation",
-                                          "host_lock", "can_change_home"}
+                                          "host_lock", "can_change_home", "scheduler", "credential_store", "scheduling_unavailable",
+                                          "desktop"}
     assert set(state["runtime"]) == {"state", "detail", "current_run", "last_run", "next_check"}
     assert state["runtime"]["state"] in ("inactive", "unavailable", "paused", "running", "scheduled_idle", "manual_idle")
     assert set(state["credentials"]["github"]) == {"present", "source", "login"}

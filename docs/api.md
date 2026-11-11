@@ -49,7 +49,11 @@ interface State {
   cursor: number;              // id of the newest stored event
   installation: {
     home: string; host: string; account: string; platform: string;
-    supported: boolean;        // false where the worker cannot be activated (not Windows)
+    supported: boolean;        // false where the worker cannot be activated (not Windows, macOS or Linux)
+    scheduler: string;         // the system scheduler, for people: "Windows Task Scheduler", "launchd (macOS)", ...
+    credential_store: string;  // "Windows Credential Manager", "the macOS Keychain", "the Secret Service keyring"
+    scheduling_unavailable: string | null; // why this copy cannot register scheduled checks (an AppImage), or null
+    desktop: boolean;          // true in the installed desktop application
     active: boolean;
     problem: string | null;    // why live work is refused here, in plain language
     activation: { host: string; activated_at: Iso; installation_id: string; migrated_from?: string } | null;
