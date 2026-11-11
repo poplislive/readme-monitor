@@ -112,7 +112,12 @@ e-mail address, because GitHub fills it in when no author is sent; they now name
 noreply address. By the screenshot refresh (row 16): on screens 3200 px and wider the hidden "Skip
 to content" link showed its bottom edge as a dark bar at the top left, because it was moved up a
 fixed 40 px while the type grows with the screen. It is now hidden by its own height plus a small
-gap, and still appears 8 px from the top when focused (measured at 1920 and 3840 px).
+gap, and still appears 8 px from the top when focused (measured at 1920 and 3840 px). By the review
+of the upgrade instructions before the release: the documented way back from 0.3.0 to 0.2.0
+(`restore-db` the pre-upgrade backup with the older version) could not work, because 0.2.0 refuses
+to open the migrated database before it can restore anything, and 0.3.0 upgrades whatever it
+restores. The documentation and the error message now say that there is no supported way back
+after a schema change and that the safe response is to pause the newer version.
 
 ### What the suite does not prove
 

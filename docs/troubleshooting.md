@@ -80,7 +80,7 @@ shown in the interface (the diagnostics list). They never include a secret.
 
 | Symptom | Likely cause | Safe remedy |
 | --- | --- | --- |
-| "was created by a newer ReadmeMonitor (schema 4)" | An older program opened a database from a newer one | Install the newer version, or restore a backup made before the upgrade (`restore-db`). |
+| "was created by a newer ReadmeMonitor (schema 4)" | An older program opened a database from a newer one | Install the newer version again. An older version can neither use nor restore over a newer database; see [Roll back an upgrade](operations.md#roll-back-an-upgrade). |
 | Spending looks lower after a restore | It cannot: `restore-db` carries forward newer usage records | Check `& $rm status`; the ledger only grows. |
 | I want to start over | | `.\scripts\uninstall.ps1 -RemoveData`, after reading its output. |
 

@@ -210,12 +210,14 @@ class DB:
         self.conn.execute("PRAGMA busy_timeout=10000")
         version = self.conn.execute("PRAGMA user_version").fetchone()[0]
         if version > SCHEMA_VERSION:
-            raise RuntimeError(f"{path} was created by a newer ReadmeMonitor (schema {version}); upgrade the code or restore a backup")
+            raise RuntimeError(f"{path} was created by a newer ReadmeMonitor (schema {version}); install that version again: "
+                               "an older version can neither use nor restore over this database")
         self._migrate(version)
 
     def _migrate(self, version: int):
         if 0 < version < SCHEMA_VERSION:
-            # Rollback: stop the monitor and restore-db this file with the previous code version.
+            # Kept for diagnosis, not as a way back: older code refuses the migrated database, and
+            # restore_from() migrates what it restores (docs/operations.md, "Roll back an upgrade").
             self.backup_to(self.path.parent / "backups" / f"pre-schema{SCHEMA_VERSION}-{datetime.now().strftime('%Y%m%dT%H%M%S%f')}.db")
         for step in MIGRATION_STEPS:
             step(self.conn)

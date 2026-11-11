@@ -80,8 +80,10 @@ has a setup interface, and is documented for newcomers.
 - **Database schema 3.** Opening a 0.1.0 or 0.2.0 database writes an automatic backup
   (`backups\pre-schema3-<time>.db`) and then only adds tables and columns; an interrupted upgrade
   simply continues on the next start. Spending records, reservations and history are unchanged.
-  An older program refuses to open a newer database. To go back, stop everything and `restore-db`
-  the backup with the older version.
+  An older program refuses to open a newer database, so once 0.3.0 has opened it there is no way
+  back to 0.2.0: if 0.3.0 misbehaves, pause it and report the problem (see
+  [Roll back an upgrade](docs/operations.md#roll-back-an-upgrade)). The automatic backup is kept for
+  diagnosis; it lacks everything recorded after the upgrade, including spending.
 - **A runtime folder copied to another computer is inactive** there and keeps its ledger. See
   [Moving an installation](docs/moving-an-installation.md). Do not run the same ledger on two
   computers.

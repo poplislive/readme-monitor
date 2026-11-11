@@ -41,7 +41,9 @@ A Windows account has one active runtime folder at a time. `bind-host` is the ol
 keeps `config.toml`, never adopts READMEs and never changes the activation. The database schema
 is versioned and an older program refuses to open a newer database. Opening a database made by
 0.1.0 or 0.2.0 with 0.3.0 first writes `backups\pre-schema3-<time>.db` and then only adds
-tables and columns. See the [changelog](../CHANGELOG.md) for what each version changes.
+tables and columns; after that there is no way back to the older version (see
+[Roll back an upgrade](#roll-back-an-upgrade)). See the [changelog](../CHANGELOG.md) for what each
+version changes.
 
 ## Daily use
 
@@ -192,12 +194,25 @@ not in this folder; they are in Windows Credential Manager.
 
 ## Roll back an upgrade
 
+The [changelog](../CHANGELOG.md) says whether a version changes the database schema.
+
+**Same schema:** go back like this.
+
 1. `& $rm pause`
 2. `& $rm backup-db`
 3. Put the previous version of the program files back (for example `git checkout <previous tag>`).
 4. `.\scripts\install.ps1`
-5. If the newer version changed the database schema, `& $rm restore-db <backup from before the upgrade>`.
-6. `& $rm resume`
+5. `& $rm resume`
+
+**Changed schema** (0.3.0 changes it for a database made by 0.1.0 or 0.2.0): there is no
+supported way back once the newer version has opened the database. The previous version refuses
+it ("was created by a newer ReadmeMonitor"), and `restore-db` cannot help: the previous version
+cannot open the current database to restore over it, and the newer version upgrades whatever it
+restores. Keep or reinstall the newer version, pause the monitor (`& $rm pause`: checks then stop
+before contacting GitHub or Claude, and nothing recorded is lost) and report the problem. The
+automatic copy made before the upgrade (`backups\pre-schema<N>-<time>.db`) is kept for diagnosis
+only: it lacks the checks and the spending recorded since the upgrade, so the spending limits
+would not count that spending.
 
 ## Uninstall
 
