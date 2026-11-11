@@ -8,7 +8,7 @@
 ![Windows](https://img.shields.io/badge/runs%20on-Windows-0A163C?style=flat-square)
 ![Status: pre-release 0.3.0](https://img.shields.io/badge/status-pre--release%200.3.0-7650A8?style=flat-square)
 
-[Getting started](docs/getting-started.md) · [Operations](docs/operations.md) · [Configuration](docs/configuration.md) · [Troubleshooting](docs/troubleshooting.md) · [Privacy](docs/privacy.md) · [Verification](docs/verification.md)
+[Getting started](docs/getting-started.md) · [Operations](docs/operations.md) · [Configuration](docs/configuration.md) · [Troubleshooting](docs/troubleshooting.md) · [Privacy](docs/privacy.md) · [Verification](docs/verification.md) · [Desktop app (in development)](docs/desktop.md)
 
 </div>
 

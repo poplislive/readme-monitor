@@ -233,3 +233,51 @@ New behavior covered by `tests/test_portfolio.py`:
 Defect found by the real discovery and fixed before release: GitHub reports `size = 0` for a
 repository that has a commit with one small file, so size is no longer used to call a repository
 empty; only GitHub's "repository is empty" answer is.
+
+## Desktop application (release candidate in development, 2026-11-10)
+
+Branch `feature/desktop` of `poplislive/readme-monitor` (local commits, not pushed). PopL, Windows 11
+Home 10.0.26200 x64, Python 3.12.10, Node 24.19.0, Rust 1.99.1, PyInstaller 6.22.3, Tauri 2.12.5
+(CLI 2.12.4). The installer was not signed by a publisher, and its updater payloads were not signed.
+No credential was used; nothing was activated on PopL; nothing was spent or written to GitHub.
+
+| Check | Label | Result |
+| --- | --- | --- |
+| Engine tests (`pytest -q`) | simulation / local integration | 307 passed, 1 skipped (282 before this work plus 25 new in `tests/test_desktop_platforms.py`) |
+| Interface typecheck and unit tests | local integration | `tsc` clean; 22 passed; `readme_monitor/web` rebuilt |
+| Frozen engine (`packaging/engine.spec`, folder build) | local integration | Builds in about 30 s. `--version` cold 0.9 s, warm 0.3 s, outside any Python environment, from a stripped `PATH` |
+| Frozen engine as the shell uses it (`packaging/smoke_engine.py`) | local integration | Ready in 0.6 to 0.9 s, header sign-in, page, state (scheduler and credential store named), simulated dry run `ok`, clean exit when stdin closes |
+| Windows installer (NSIS, per user) | local integration | Built by `scripts/build-desktop.ps1`; silent install into `%LOCALAPPDATA%\Programs\ReadmeMonitor`. The pre-0.3.0 runtime folder at `%LOCALAPPDATA%\ReadmeMonitor` (9 files) stayed byte-identical through install, update and uninstall |
+| Installed app launch | local integration | The shell starts its own `engine\rm-engine.exe desktop-serve` (ready in about 1.8 s), with a runtime folder whose path contains a space and `ü`. The window title is ReadmeMonitor and it responds |
+| One instance | local integration | A second launch left one shell and one engine |
+| Shell crash | local integration | Killing the shell stopped the engine within 0.5 s (stdin closed) and removed `ui-server.json` |
+| Task Scheduler starts the packaged engine | local integration | The engine's own task definition, registered under a test name without triggers and started once: `rm-engine-bg.exe` ran with the non-ASCII path and returned 3 (refused: not activated, as intended on PopL). The task was deleted |
+| Update install over the previous version (`/S /UPDATE`, as the updater runs it) | local integration | 0.3.0 to a 0.3.1 test build: same install folder; a placeholder `\ReadmeMonitor\Sync` task kept; runtime folders unchanged; all five licence files present |
+| Uninstall (`/S`) | local integration | Program, folder, uninstall entry and Start menu shortcut removed; `\ReadmeMonitor\Sync` removed by the hook; runtime folders kept; no new folder created |
+| systemd user timer backend | local integration (WSL Ubuntu 26.04, systemd 1 running) | Real `systemctl --user`: daily, weekly, interval and manual registered and read back from the active timer; `run_now` ran the (harmless) command; uninstall left nothing |
+
+Defects found by these checks and fixed:
+
+- Concurrent first requests on a new runtime folder answered "database is locked" (the installed
+  app's window and tray polled at once). The database is now created before the server takes
+  requests. The regression test does not reliably fail without the fix (the race depends on timing).
+- `/api/state` dropped the new installation fields, so the page would have shown no scheduler name.
+  Found by the smoke test; now covered by a test.
+- The Windows per-user default install folder was the pre-0.3.0 runtime folder. Fresh installs now
+  go to `%LOCALAPPDATA%\Programs\ReadmeMonitor`.
+- The uninstaller's `uninstall-task` call created an empty runtime folder; it no longer does.
+- `smoke_engine.py` could not start the engine from a relative path with forward slashes on Windows,
+  which the CI job uses.
+
+NOT TESTED:
+
+- The window's rendering, keyboard and focus behaviour, the tray menu, close and reopen, the dialogs
+  and the in-app update flow (Install and restart). Screen control was declined for this session.
+- A signed update end to end (download, signature check, maintenance, install, health check).
+  The engine side is covered by tests; the shell side has not been run.
+- macOS (any architecture), the Linux packages (.deb, AppImage), WebKit rendering, the macOS
+  Keychain and the Secret Service backend. They are built only by `.github/workflows/desktop.yml`,
+  which has not run (the branch is not pushed).
+- A real scheduled worker run of the packaged app, sleep/resume, sign-in at logon, network loss and a
+  locked credential store. Each of these needs an activated installation.
+- Publisher signing: none on Windows or macOS. The updater key is a candidate kept outside the repository.

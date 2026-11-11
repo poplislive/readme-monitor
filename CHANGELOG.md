@@ -3,6 +3,36 @@
 All notable changes to ReadmeMonitor. Dates are UTC. The project is pre-release: nothing has
 been published as a release yet, and the version numbers mark the stages of development.
 
+## Unreleased: desktop application (release candidate in development)
+
+Not part of 0.3.0. The version number for the first desktop release is still to be decided; the
+files below stay at 0.3.0 so that every part reports one version.
+
+### Added
+
+- **Desktop application** for Windows, macOS and Linux ([docs/desktop.md](docs/desktop.md)): a
+  Tauri 2 shell around the frozen engine (PyInstaller) and the existing interface. It has its own
+  window, a tray or menu-bar icon (Open, Run a check now, Pause/Resume background checks, Quit),
+  one instance per installation, remembered window size, and safe external links. The window signs
+  in with a one-time code passed over a private pipe, never in a URL.
+- **Signed in-app updates** from GitHub Releases. A running check always finishes first. The
+  update takes a database backup and sets a maintenance flag that every worker entry point honours
+  under `worker.lock`. A start-up health check runs before checks resume.
+- **macOS and Linux scheduling**: launchd user agents and systemd user timers next to Windows Task
+  Scheduler, with the same configured-versus-in-effect read-back. A scheduled check that still starts
+  another copy (for example an earlier source install) is reported, not shown as in effect.
+- **Per-computer activation on macOS (IOPlatformUUID) and Linux (/etc/machine-id)**, plus
+  platform runtime folders: `~/Library/Application Support/ReadmeMonitor` and
+  `$XDG_DATA_HOME/ReadmeMonitor`. An existing activated folder is kept where it is.
+- Release workflow `.github/workflows/desktop.yml`: unsigned validation builds for pull requests,
+  and a draft release with `latest.json` and `SHA256SUMS.txt` for a version tag.
+
+### Fixed
+
+- A new runtime folder could answer its first concurrent interface requests with "database is
+  locked". The database is now created once, before the server takes requests.
+- Saving a credential refuses an insecure keyring backend (a plaintext file) instead of using it.
+
 ## 0.3.0 - unreleased
 
 The first version meant for people other than its author: it installs on any Windows computer,
