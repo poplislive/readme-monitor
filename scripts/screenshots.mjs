@@ -98,9 +98,11 @@ try {
     return r.result.value;
   };
 
-  // The README pictures use the dark theme, US formats and UTC, whatever this computer is set to: a
-  // public picture must not reveal the time zone of the computer that took it.
-  await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }] });
+  // The README pictures use the dark theme, full motion, normal colours, US formats and UTC, whatever
+  // this computer is set to (GitHub's Windows runner asks for reduced motion): a public picture must
+  // not depend on, or reveal, the settings of the computer that took it.
+  await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" },
+    { name: "prefers-reduced-motion", value: "no-preference" }, { name: "forced-colors", value: "none" }] });
   await send("Emulation.setLocaleOverride", { locale: "en-US" });
   await send("Emulation.setTimezoneOverride", { timezoneId: "UTC" });
   await send("Page.navigate", { url: auth });
