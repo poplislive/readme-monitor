@@ -54,8 +54,10 @@ code { overflow-wrap: anywhere; }
 a { color: var(--cyan); text-underline-offset: 3px; }
 .small { font-size: var(--fs-sm); } .muted { color: var(--text-2); } .grow { flex: 1 1 auto; min-width: 0; } .full { flex-basis: 100%; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
-.skip { position: absolute; left: var(--s2); top: -40px; background: var(--surface); padding: var(--s2) var(--s3); z-index: 50; }
-.skip:focus { top: var(--s2); }
+/* Hidden by its own height, which grows with the type scale on large screens (a fixed offset peeked out at 4K),
+   plus a small gap so a fractional height cannot blend into the top pixel row. */
+.skip { position: absolute; left: var(--s2); top: 0; transform: translateY(calc(-100% - var(--s1))); background: var(--surface); padding: var(--s2) var(--s3); z-index: 50; }
+.skip:focus { transform: translateY(var(--s2)); }
 .icon { flex: none; vertical-align: -0.15em; }
 
 .tone-ok { color: var(--green); } .tone-active { color: var(--cyan); } .tone-attention { color: var(--amber); } .tone-fail { color: var(--red); } .tone-neutral { color: var(--text-2); }

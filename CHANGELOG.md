@@ -35,6 +35,10 @@ has a setup interface, and is documented for newcomers.
 - `scripts\start.ps1`, `ReadmeMonitor.cmd` (start the interface), `scripts\uninstall.ps1`
   (remove the task, the activation and optionally credentials or data), and
   `scripts\verify-clean-install.ps1` (checks that a clean copy installs and serves the interface).
+- **README pictures that can be regenerated**: `scripts/screenshots.mjs` captures them from the
+  simulation in the installed Chrome or Edge, without installing anything, and a manual
+  **Screenshots** workflow does the same on GitHub ([Contributing](CONTRIBUTING.md)). The pictures
+  use UTC, so they do not show the time zone of the computer that took them.
 - Documentation for newcomers: [Getting started](docs/getting-started.md),
   [Troubleshooting](docs/troubleshooting.md), [Moving an installation](docs/moving-an-installation.md),
   [Privacy](docs/privacy.md), [Security policy](SECURITY.md), [Contributing](CONTRIBUTING.md) and

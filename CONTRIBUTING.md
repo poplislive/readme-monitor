@@ -58,6 +58,23 @@ remove or upgrade an interface dependency, also run `python scripts/third_party_
 This serves the interface from a temporary folder with an in-memory GitHub and a scripted model.
 Nothing is sent to GitHub or Anthropic and Task Scheduler is not touched.
 
+## Refresh the README pictures
+
+The pictures in `docs/screenshots/` come from the simulation, never from a real installation.
+After an interface change, regenerate them on Windows with Chrome or Edge and Node.js 22 or newer:
+
+```powershell
+node scripts\screenshots.mjs
+```
+
+It starts the simulation with `.venv`, plays a dry run and two live runs, and replaces
+`workbench.png`, `workbench-4k.png`, `workbench-mobile.png` and `setup.png`. It saves nothing if a
+run fails, the simulation banner is missing or a page scrolls sideways. The desktop pictures show
+the clock times (in UTC) of the simulated runs, so every capture differs a little; compare them by
+eye. Maintainers can instead run the **Screenshots** workflow from the Actions tab: it pushes the
+new pictures to a new branch and links the pull request to open, or, with **push** turned off,
+keeps them as a downloadable artifact.
+
 ## Coding expectations
 
 - No live calls in tests. Use the existing fakes in `tests/`.
